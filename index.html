@@ -81,12 +81,30 @@
         <h1 class="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
             🏭 工廠設備進廠與施作時程規畫表
         </h1>
-            </div>
-    <div class="flex items-center gap-3 shrink-0">
+        <p class="text-slate-500 mt-0.5 text-xs">
+            拖曳 ☰ 排序 ｜ 點擊<span class="font-semibold">彩色圓點</span>循環換色（自動避開已用色）｜ 拖曳中間橫條調整高度
+        </p>
+    </div>
+    <div class="flex items-center gap-2 shrink-0 flex-wrap">
         <div id="sync-status" class="shrink-0">
             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                 <span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-amber-400 animate-pulse"></span>⏳ 讀取中...
             </span>
+        </div>
+        <!-- 🗂️ 備份控制群組 -->
+        <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1.5 shadow-sm">
+            <button onclick="backupMainAction()" id="backup-btn"
+                class="text-xs font-medium text-slate-600 hover:text-indigo-600 flex items-center gap-1 transition-colors">
+                🗂️ 設定備份資料夾
+            </button>
+            <span class="text-slate-200 select-none">｜</span>
+            <button onclick="backupNow(true)" id="backup-now-btn" title="立即寫入備份檔"
+                class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">💾</button>
+            <button onclick="exportBackupFile()" title="手動下載備份檔（任何瀏覽器都可用）"
+                class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">⬇</button>
+            <button onclick="document.getElementById('import-backup-input').click()" title="從備份檔還原"
+                class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">⬆</button>
+            <input type="file" id="import-backup-input" accept=".json,.txt" class="hidden" onchange="importBackupFile(this)">
         </div>
         <button onclick="exportToPDF()" id="pdf-btn"
             class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-all flex items-center gap-2 active:scale-95">
@@ -145,7 +163,7 @@
     <section id="gantt-section"
         class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-[150px]">
         <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 shrink-0 flex justify-between items-center">
-            <h2 class="font-semibold text-slate-700 text-sm">📊 時程表 </h2>
+            <h2 class="font-semibold text-slate-700 text-sm">📊 專案甘特圖 (Gantt Chart)</h2>
             <div class="flex items-center gap-3">
                 <!-- 圖例 -->
                 <div class="hidden md:flex items-center gap-3 text-xs text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
@@ -330,6 +348,252 @@ function updateStyleDisplays() {
     if (b) b.textContent = ganttStyle.barHeight;
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🗂️ 檔案備份系統（File System Access API）
+//   - 指定備份資料夾後：每天一個 JSON 紀錄檔
+//   - 每小時自動寫入（資料有變動才寫）
+//   - 開啟頁面時自動載入最新日期的備份檔（比 localStorage 新才套用）
+//   - 不支援的瀏覽器：可用 ⬇匯出 / ⬆匯入 手動備援
+// ═══════════════════════════════════════════════════════════
+const BACKUP_PREFIX = 'factory_backup_';
+const BACKUP_INTERVAL_MS = 60 * 60 * 1000;   // 1 小時
+const LS_SAVED_AT = 'factory_saved_at';
+
+let dirHandle = null;          // 已授權的資料夾
+let pendingHandle = null;      // 等待重新授權的資料夾
+let lastBackupTime = 0;
+let lastBackupCore = '';       // 上次備份時的任務資料快照（變動偵測用）
+
+function fsApiSupported() { return 'showDirectoryPicker' in window; }
+
+// ── IndexedDB：跨次開啟記住資料夾授權 ──
+function idbOpen() {
+    return new Promise((res, rej) => {
+        const req = indexedDB.open('factory_backup_db', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('handles');
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+    });
+}
+async function idbSet(key, val) {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+        const tx = db.transaction('handles', 'readwrite');
+        tx.objectStore('handles').put(val, key);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+    });
+}
+async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+        const tx = db.transaction('handles', 'readonly');
+        const r = tx.objectStore('handles').get(key);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+    });
+}
+
+// ── 備份狀態顯示 ──
+function updateBackupStatus(state, extra='') {
+    const btn = document.getElementById('backup-btn');
+    if (!btn) return;
+    const map = {
+        none:            ['🗂️ 設定備份資料夾', 'text-slate-600'],
+        connected:       [`✅ 備份中${extra}`, 'text-green-600'],
+        'need-permission': ['🔓 點此恢復備份連線', 'text-amber-600'],
+        error:           ['⚠️ 備份寫入失敗', 'text-red-600'],
+        unsupported:     ['🗂️ 此瀏覽器僅支援手動備份', 'text-slate-400'],
+    };
+    const [text, color] = map[state] || map.none;
+    btn.textContent = text;
+    btn.className = `text-xs font-medium hover:text-indigo-600 flex items-center gap-1 transition-colors ${color}`;
+}
+
+// ── 主按鈕行為 ──
+async function backupMainAction() {
+    if (!fsApiSupported()) {
+        toast('此瀏覽器不支援自動備份資料夾，請使用 ⬇ 手動匯出備份檔（建議改用 Chrome / Edge）', 'error');
+        return;
+    }
+    if (pendingHandle) {  // 需要重新授權
+        try {
+            const p = await pendingHandle.requestPermission({ mode: 'readwrite' });
+            if (p === 'granted') {
+                dirHandle = pendingHandle; pendingHandle = null;
+                updateBackupStatus('connected');
+                toast('備份資料夾連線已恢復', 'success');
+                await loadLatestBackup(true);
+                await backupNow(false);
+                return;
+            }
+        } catch(e) {}
+        // 授權失敗 → 重新選資料夾
+    }
+    await connectBackupFolder();
+}
+
+async function connectBackupFolder() {
+    try {
+        dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        pendingHandle = null;
+        await idbSet('backupDir', dirHandle);
+        updateBackupStatus('connected');
+        toast('備份資料夾已連結，將每小時自動備份', 'success');
+        await loadLatestBackup(true);   // 若資料夾有更新的備份，先載入
+        await backupNow(true);          // 確保今天的紀錄檔存在
+    } catch(e) {
+        if (e.name !== 'AbortError') {
+            console.error(e);
+            toast('無法連結資料夾：' + e.message, 'error');
+        }
+    }
+}
+
+// 頁面開啟時嘗試還原先前授權
+async function restoreBackupConnection() {
+    if (!fsApiSupported()) { updateBackupStatus('unsupported'); return; }
+    try {
+        const h = await idbGet('backupDir');
+        if (!h) { updateBackupStatus('none'); return; }
+        const perm = await h.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+            dirHandle = h;
+            updateBackupStatus('connected');
+            await loadLatestBackup(true);
+            await backupNow(false);
+        } else {
+            // 瀏覽器要求使用者手勢才能重新授權 → 顯示提示按鈕
+            pendingHandle = h;
+            updateBackupStatus('need-permission');
+        }
+    } catch(e) {
+        updateBackupStatus('none');
+    }
+}
+
+// ── 備份檔內容與檔名 ──
+function backupFileName() {
+    return BACKUP_PREFIX + new Date().toISOString().split('T')[0] + '.json';  // 每天一個檔
+}
+function backupSnapshot() {
+    return JSON.stringify({
+        savedAt: new Date().toISOString(),
+        app: '工廠設備進廠與施作時程規畫表',
+        tasks: tasks,
+        ganttStyle: ganttStyle,
+    }, null, 2);
+}
+
+// ── 寫入備份（有變動才寫；force=true 強制寫）──
+async function backupNow(force = false) {
+    if (!dirHandle) {
+        if (force) toast('請先設定備份資料夾', 'error');
+        return;
+    }
+    const core = JSON.stringify(tasks);
+    if (!force && core === lastBackupCore) return;   // 資料無變動，跳過
+
+    try {
+        const fh = await dirHandle.getFileHandle(backupFileName(), { create: true });
+        const w  = await fh.createWritable();
+        await w.write(backupSnapshot());
+        await w.close();
+        lastBackupCore = core;
+        lastBackupTime = Date.now();
+        const t = new Date().toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        updateBackupStatus('connected', ` ${t}`);
+        if (force) toast(`已備份至 ${backupFileName()}`, 'success');
+    } catch(e) {
+        console.error('備份寫入失敗:', e);
+        updateBackupStatus('error');
+        if (force) toast('備份寫入失敗：' + e.message, 'error');
+    }
+}
+
+// ── 掃描資料夾，載入最新日期的備份檔 ──
+async function loadLatestBackup(apply = false) {
+    if (!dirHandle) return null;
+    let latest = null;
+    try {
+        for await (const [name, handle] of dirHandle.entries()) {
+            if (handle.kind === 'file' && name.startsWith(BACKUP_PREFIX) && name.endsWith('.json')) {
+                if (!latest || name > latest.name) latest = { name, handle };  // 檔名含日期，字串比較即最新
+            }
+        }
+    } catch(e) { return null; }
+    if (!latest) return null;
+
+    try {
+        const file = await latest.handle.getFile();
+        const obj = JSON.parse(await file.text());
+        if (!obj || !Array.isArray(obj.tasks)) return null;
+
+        if (apply) {
+            const localSavedAt = localStorage.getItem(LS_SAVED_AT) || '';
+            const fileSavedAt  = obj.savedAt || '';
+            // 只有備份檔比本機資料「新」才套用，避免舊備份蓋掉新編輯
+            if (fileSavedAt > localSavedAt) {
+                tasks = obj.tasks;
+                if (obj.ganttStyle && obj.ganttStyle.fontSize) {
+                    ganttStyle = obj.ganttStyle;
+                    saveGanttStyle();
+                    updateStyleDisplays();
+                }
+                localStorage.setItem(LS_DATA, JSON.stringify(tasks));
+                localStorage.setItem(LS_SAVED_AT, fileSavedAt);
+                renderTable(); renderGantt();
+                toast(`已載入最新備份：${latest.name}`, 'success');
+            }
+            lastBackupCore = JSON.stringify(tasks);
+        }
+        return obj;
+    } catch(e) {
+        console.error('讀取備份失敗:', e);
+        return null;
+    }
+}
+
+// ── 每小時自動備份（有變動才寫）──
+setInterval(() => { backupNow(false); }, BACKUP_INTERVAL_MS);
+
+// ── 手動匯出（所有瀏覽器都支援的備援方案）──
+function exportBackupFile() {
+    const blob = new Blob([backupSnapshot()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const ts = new Date().toISOString().replace(/[:T]/g,'-').slice(0,16);
+    a.download = `${BACKUP_PREFIX}${ts}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('備份檔已下載', 'success');
+}
+
+// ── 手動匯入還原 ──
+function importBackupFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const obj = JSON.parse(reader.result);
+            if (!obj || !Array.isArray(obj.tasks)) throw new Error('格式不正確');
+            tasks = obj.tasks;
+            if (obj.ganttStyle && obj.ganttStyle.fontSize) {
+                ganttStyle = obj.ganttStyle;
+                saveGanttStyle();
+                updateStyleDisplays();
+            }
+            renderTable(); renderGantt(); saveData();
+            toast(`已從 ${file.name} 還原 ${tasks.length} 筆任務`, 'success');
+        } catch(e) {
+            toast('匯入失敗：' + e.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+    input.value = '';
+}
+
 // ── Toast ──────────────────────────────────────────────────
 function toast(msg, type='info') {
     const el = document.createElement('div');
@@ -381,8 +645,13 @@ function loadData() {
 
 function saveData() {
     setSyncStatus('saving');
-    try { localStorage.setItem(LS_DATA, JSON.stringify(tasks)); } catch(e){}
+    try {
+        localStorage.setItem(LS_DATA, JSON.stringify(tasks));
+        localStorage.setItem(LS_SAVED_AT, new Date().toISOString());
+    } catch(e){}
     setTimeout(()=>setSyncStatus('synced'), 300);
+    // 距上次備份超過 1 小時且資料有變動 → 補寫備份
+    if (dirHandle && Date.now() - lastBackupTime >= BACKUP_INTERVAL_MS) backupNow(false);
 }
 
 // ── 工具 ──────────────────────────────────────────────────
@@ -403,8 +672,8 @@ function dateBounds() {
 }
 
 // ── 初始化 ────────────────────────────────────────────────
-if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>{ loadData(); initSplitter(); });
-else { loadData(); initSplitter(); }
+if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>{ loadData(); initSplitter(); restoreBackupConnection(); });
+else { loadData(); initSplitter(); restoreBackupConnection(); }
 
 // ── Splitter ──────────────────────────────────────────────
 function initSplitter() {
@@ -796,7 +1065,7 @@ async function exportToPDF() {
         let y=M;
         doc.setFillColor(15,23,42); doc.rect(M,y,CW,8,'F');
         doc.setTextColor(255,255,255); doc.setFontSize(11);
-        doc.text('🏭 設備進廠與施作時程規畫表',M+3,y+5.5);
+        doc.text('🏭 工廠設備進廠與施作時程規畫表',M+3,y+5.5);
         doc.setFontSize(7); doc.setTextColor(180,180,180);
         doc.text(new Date().toLocaleDateString('zh-TW'),M+CW-2,y+5.5,{align:'right'});
         y+=10;
@@ -953,6 +1222,8 @@ window.addTask=addTask; window.openDeleteModal=openDeleteModal; window.closeDele
 window.updateTaskField=updateTaskField; window.resetData=resetData; window.exportToPDF=exportToPDF;
 window.setScaleUnit=setScaleUnit; window.cycleColor=cycleColor;
 window.adjustFontSize=adjustFontSize; window.adjustBarHeight=adjustBarHeight;
+window.backupMainAction=backupMainAction; window.backupNow=backupNow;
+window.exportBackupFile=exportBackupFile; window.importBackupFile=importBackupFile;
 </script>
 </body>
 </html>
