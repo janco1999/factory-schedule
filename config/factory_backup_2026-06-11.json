@@ -1,0 +1,170 @@
+{
+  "savedAt": "2026-06-11T07:25:03.645Z",
+  "app": "工廠設備進廠與施作時程規畫表",
+  "tasks": [
+    {
+      "id": 1,
+      "name": "2F拋光地面設備移動",
+      "start": "2026-06-29",
+      "end": "2026-07-03",
+      "color": "c-green",
+      "contractor": "Amline ",
+      "contractDate": "",
+      "paymentDate": ""
+    },
+    {
+      "id": 2,
+      "name": "2F隔間拆除",
+      "start": "2026-07-04",
+      "end": "2026-07-07",
+      "color": "c-orange",
+      "contractor": "待定廠商 (Steven)",
+      "contractDate": "2026-06-11",
+      "paymentDate": "2026-07-08"
+    },
+    {
+      "id": 7,
+      "name": "無障礙廁所設置 ",
+      "start": "2026-08-20",
+      "end": "2026-09-10",
+      "color": "c-indigo",
+      "contractor": "待定廠商 (Steven)",
+      "contractDate": "2026-06-11",
+      "paymentDate": "2026-09-20"
+    },
+    {
+      "id": 3,
+      "name": "2F新產線地面整地 ",
+      "start": "2026-07-16",
+      "end": "2026-08-20",
+      "color": "c-blue",
+      "contractor": "易度",
+      "contractDate": "2026-07-05",
+      "paymentDate": "2026-08-25"
+    },
+    {
+      "id": 11,
+      "name": "工廠登記變更",
+      "start": "2026-11-15",
+      "end": "2026-11-22",
+      "contractor": "莊建築師",
+      "contractDate": "",
+      "paymentDate": "",
+      "color": "c-red"
+    },
+    {
+      "id": 16,
+      "name": "環保申請變更",
+      "start": "2026-12-06",
+      "end": "2026-12-13",
+      "contractor": "待定廠商 (Steven)",
+      "contractDate": "2026-06-11",
+      "paymentDate": "",
+      "color": "c-sky"
+    },
+    {
+      "id": 15,
+      "name": "集塵風管(拆除保存)",
+      "start": "2026-12-06",
+      "end": "2026-12-13",
+      "contractor": "待定廠商 (Steven)",
+      "contractDate": "2026-06-11",
+      "paymentDate": "",
+      "color": "c-violet"
+    },
+    {
+      "id": 14,
+      "name": "噴漆地面設備移動",
+      "start": "2026-12-06",
+      "end": "2026-12-13",
+      "contractor": "Amline",
+      "contractDate": "",
+      "paymentDate": "",
+      "color": "c-fuchsia"
+    },
+    {
+      "id": 12,
+      "name": "SEM顯微鏡",
+      "start": "2026-08-03",
+      "end": "2026-08-07",
+      "contractor": "Keyance or 辛耘",
+      "contractDate": "2026-07-06",
+      "paymentDate": "2026-09-07",
+      "color": "c-rose"
+    },
+    {
+      "id": 4,
+      "name": "ERP & MES",
+      "start": "2026-07-20",
+      "end": "2026-08-10",
+      "color": "c-cyan",
+      "contractor": "博科 or 正航",
+      "contractDate": "2026-07-10",
+      "paymentDate": "2026-08-15"
+    },
+    {
+      "id": 5,
+      "name": "電力工程設置 ",
+      "start": "2026-08-01",
+      "end": "2026-08-15",
+      "color": "c-teal",
+      "contractor": "華興水電 (Steven)",
+      "contractDate": "2026-07-20",
+      "paymentDate": "2026-08-20"
+    },
+    {
+      "id": 6,
+      "name": "瓦斯管線設置",
+      "start": "2026-08-08",
+      "end": "2026-08-22",
+      "color": "c-amber",
+      "contractor": "欣南瓦斯 (Steven)",
+      "contractDate": "2026-08-01",
+      "paymentDate": "2026-08-25"
+    },
+    {
+      "id": 8,
+      "name": "新設陽極產線",
+      "start": "2026-08-25",
+      "end": "2026-09-15",
+      "color": "c-emerald",
+      "contractor": "易度",
+      "contractDate": "2026-08-10",
+      "paymentDate": "2026-09-25"
+    },
+    {
+      "id": 9,
+      "name": "鍋爐房及鍋爐設備",
+      "start": "2026-11-01",
+      "end": "2026-11-13",
+      "color": "c-purple",
+      "contractor": "三浦",
+      "contractDate": "2026-08-07",
+      "paymentDate": "2026-12-18"
+    },
+    {
+      "id": 10,
+      "name": "汙水設備(待評估)",
+      "start": "2026-09-15",
+      "end": "2026-11-15",
+      "color": "c-slate",
+      "contractor": "易度",
+      "contractDate": "2026-09-01",
+      "paymentDate": "2026-11-20"
+    },
+    {
+      "id": 13,
+      "name": "舊產線拆除整地",
+      "start": "2027-01-04",
+      "end": "2027-01-08",
+      "contractor": "待定廠商(Steven)",
+      "contractDate": "",
+      "paymentDate": "",
+      "color": "c-pink"
+    }
+  ],
+  "ganttStyle": {
+    "fontSize": 14,
+    "barHeight": 28
+  }
+}
