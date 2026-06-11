@@ -91,21 +91,9 @@
                 <span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-amber-400 animate-pulse"></span>⏳ 讀取中...
             </span>
         </div>
-        <!-- 🗂️ 備份控制群組 -->
-        <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1.5 shadow-sm">
-            <button onclick="backupMainAction()" id="backup-btn"
-                class="text-xs font-medium text-slate-600 hover:text-indigo-600 flex items-center gap-1 transition-colors">
-                🗂️ 設定備份資料夾
-            </button>
-            <span class="text-slate-200 select-none">｜</span>
-            <button onclick="backupNow(true)" id="backup-now-btn" title="立即寫入備份檔"
-                class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">💾</button>
-            <button onclick="exportBackupFile()" title="手動下載備份檔（任何瀏覽器都可用）"
-                class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">⬇</button>
-            <button onclick="document.getElementById('import-backup-input').click()" title="從備份檔還原"
-                class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">⬆</button>
-            <input type="file" id="import-backup-input" accept=".json,.txt" class="hidden" onchange="importBackupFile(this)">
-        </div>
+        <!-- 備份狀態指示燈（純顯示，無任何操作功能）-->
+        <div id="backup-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0" title="備份：未啟用"></div>
+        <input type="file" id="import-backup-input" accept=".json,.txt" class="hidden" onchange="importBackupFile(this)">
         <button onclick="exportToPDF()" id="pdf-btn"
             class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-all flex items-center gap-2 active:scale-95">
             📄 匯出 PDF
@@ -224,6 +212,59 @@
                 class="px-4 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50">取消</button>
             <button id="confirm-delete-btn"
                 class="px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm text-white">確認刪除</button>
+        </div>
+    </div>
+</div>
+
+<!-- 🔒 隱藏維護面板：僅透過快捷鍵 Ctrl+Alt+B（或網址加 #setup）開啟 -->
+<div id="owner-dialog"
+    class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+    <div id="owner-dialog-card"
+        class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden transform scale-95 transition-transform duration-200">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-800">
+            <h3 class="text-base font-bold text-white">🔒 維護面板（管理者）</h3>
+            <button onclick="closeOwnerDialog()" class="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+        </div>
+        <div class="p-5 space-y-4">
+            <div>
+                <div class="text-xs text-slate-500 mb-2">
+                    備份目標（程式碼內固定，介面不可變更）：<br>
+                    <span id="owner-target-info" class="font-mono text-slate-700"></span>
+                </div>
+                <label class="text-xs font-medium text-slate-600 block mb-1">GitHub Token（只存於這台電腦）</label>
+                <input id="owner-token" type="password" placeholder="github_pat_xxxx"
+                    class="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:border-indigo-500">
+                <div class="flex gap-2 mt-2">
+                    <button id="owner-save-btn" onclick="ownerSaveToken()"
+                        class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+                        儲存 Token 並啟用備份
+                    </button>
+                    <button onclick="ownerClearToken()"
+                        class="bg-white border border-red-300 text-red-600 hover:bg-red-50 text-sm px-3 py-2 rounded-lg transition-colors">
+                        清除
+                    </button>
+                </div>
+            </div>
+            <hr class="border-slate-100">
+            <div class="grid grid-cols-3 gap-2">
+                <button onclick="backupNow(true)"
+                    class="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-medium px-2 py-2 rounded-lg transition-colors">
+                    💾 立即備份
+                </button>
+                <button onclick="exportBackupFile()"
+                    class="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-medium px-2 py-2 rounded-lg transition-colors">
+                    ⬇ 下載備份檔
+                </button>
+                <button onclick="document.getElementById('import-backup-input').click()"
+                    class="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-medium px-2 py-2 rounded-lg transition-colors">
+                    ⬆ 從檔案還原
+                </button>
+            </div>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+                此面板僅供管理者使用：以 <b>Ctrl + Alt + B</b> 開啟。Token 儲存在這台電腦的瀏覽器（localStorage），
+                不會寫入 HTML 檔，因此 HTML 放上 Git 不會洩漏。其他人開啟此檔案時看不到任何備份設定入口，
+                沒有 Token 的電腦無法寫入或讀取你的備份。
+            </p>
         </div>
     </div>
 </div>
@@ -349,132 +390,55 @@ function updateStyleDisplays() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🗂️ 檔案備份系統（File System Access API）
-//   - 指定備份資料夾後：每天一個 JSON 紀錄檔
-//   - 每小時自動寫入（資料有變動才寫）
-//   - 開啟頁面時自動載入最新日期的備份檔（比 localStorage 新才套用）
-//   - 不支援的瀏覽器：可用 ⬇匯出 / ⬆匯入 手動備援
+// 🔒 背景備份系統（GitHub，設定寫死、介面不可變更）
+//   - 備份目標寫死在下方 BACKUP_TARGET，一般使用者無法從介面更改
+//   - Token 不寫在檔案內：管理者按 Ctrl+Alt+B 開維護面板輸入一次，
+//     僅存於該台電腦的 localStorage
+//   - 有 Token 的電腦：開啟時自動載入最新備份、每小時自動 commit
+//   - 沒有 Token 的電腦：純本機使用，碰不到備份
 // ═══════════════════════════════════════════════════════════
+
+// ★★★ 管理者請在這裡填寫備份目標（不含 Token！）★★★
+const BACKUP_TARGET = {
+    owner:  '',          // GitHub 帳號或組織，例如 'sean-tw'
+    repo:   '',          // Repo 名稱，例如 'factory-schedule'
+    branch: 'main',
+    path:   'backup',    // repo 內的備份資料夾
+};
+
 const BACKUP_PREFIX = 'factory_backup_';
 const BACKUP_INTERVAL_MS = 60 * 60 * 1000;   // 1 小時
 const LS_SAVED_AT = 'factory_saved_at';
+const LS_GH_TOKEN = 'factory_gh_token';
 
-let dirHandle = null;          // 已授權的資料夾
-let pendingHandle = null;      // 等待重新授權的資料夾
+let ghToken = '';
+try { ghToken = localStorage.getItem(LS_GH_TOKEN) || ''; } catch(e){}
+
 let lastBackupTime = 0;
-let lastBackupCore = '';       // 上次備份時的任務資料快照（變動偵測用）
+let lastBackupCore = '';
 
-function fsApiSupported() { return 'showDirectoryPicker' in window; }
-
-// ── IndexedDB：跨次開啟記住資料夾授權 ──
-function idbOpen() {
-    return new Promise((res, rej) => {
-        const req = indexedDB.open('factory_backup_db', 1);
-        req.onupgradeneeded = () => req.result.createObjectStore('handles');
-        req.onsuccess = () => res(req.result);
-        req.onerror = () => rej(req.error);
-    });
-}
-async function idbSet(key, val) {
-    const db = await idbOpen();
-    return new Promise((res, rej) => {
-        const tx = db.transaction('handles', 'readwrite');
-        tx.objectStore('handles').put(val, key);
-        tx.oncomplete = () => res();
-        tx.onerror = () => rej(tx.error);
-    });
-}
-async function idbGet(key) {
-    const db = await idbOpen();
-    return new Promise((res, rej) => {
-        const tx = db.transaction('handles', 'readonly');
-        const r = tx.objectStore('handles').get(key);
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-    });
+function backupEnabled() {
+    return !!(BACKUP_TARGET.owner && BACKUP_TARGET.repo && ghToken);
 }
 
-// ── 備份狀態顯示 ──
-function updateBackupStatus(state, extra='') {
-    const btn = document.getElementById('backup-btn');
-    if (!btn) return;
+// ── 狀態指示燈（純顯示）──
+function updateBackupDot(state, tip='') {
+    const dot = document.getElementById('backup-dot');
+    if (!dot) return;
     const map = {
-        none:            ['🗂️ 設定備份資料夾', 'text-slate-600'],
-        connected:       [`✅ 備份中${extra}`, 'text-green-600'],
-        'need-permission': ['🔓 點此恢復備份連線', 'text-amber-600'],
-        error:           ['⚠️ 備份寫入失敗', 'text-red-600'],
-        unsupported:     ['🗂️ 此瀏覽器僅支援手動備份', 'text-slate-400'],
+        off:   ['bg-slate-300', '備份：未啟用'],
+        ok:    ['bg-green-500', '備份：運作中' + tip],
+        busy:  ['bg-blue-400 animate-pulse', '備份：寫入中...'],
+        error: ['bg-red-500', '備份：發生錯誤' + tip],
     };
-    const [text, color] = map[state] || map.none;
-    btn.textContent = text;
-    btn.className = `text-xs font-medium hover:text-indigo-600 flex items-center gap-1 transition-colors ${color}`;
+    const [cls, title] = map[state] || map.off;
+    dot.className = `w-2.5 h-2.5 rounded-full shrink-0 ${cls}`;
+    dot.title = title;
 }
 
-// ── 主按鈕行為 ──
-async function backupMainAction() {
-    if (!fsApiSupported()) {
-        toast('此瀏覽器不支援自動備份資料夾，請使用 ⬇ 手動匯出備份檔（建議改用 Chrome / Edge）', 'error');
-        return;
-    }
-    if (pendingHandle) {  // 需要重新授權
-        try {
-            const p = await pendingHandle.requestPermission({ mode: 'readwrite' });
-            if (p === 'granted') {
-                dirHandle = pendingHandle; pendingHandle = null;
-                updateBackupStatus('connected');
-                toast('備份資料夾連線已恢復', 'success');
-                await loadLatestBackup(true);
-                await backupNow(false);
-                return;
-            }
-        } catch(e) {}
-        // 授權失敗 → 重新選資料夾
-    }
-    await connectBackupFolder();
-}
-
-async function connectBackupFolder() {
-    try {
-        dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-        pendingHandle = null;
-        await idbSet('backupDir', dirHandle);
-        updateBackupStatus('connected');
-        toast('備份資料夾已連結，將每小時自動備份', 'success');
-        await loadLatestBackup(true);   // 若資料夾有更新的備份，先載入
-        await backupNow(true);          // 確保今天的紀錄檔存在
-    } catch(e) {
-        if (e.name !== 'AbortError') {
-            console.error(e);
-            toast('無法連結資料夾：' + e.message, 'error');
-        }
-    }
-}
-
-// 頁面開啟時嘗試還原先前授權
-async function restoreBackupConnection() {
-    if (!fsApiSupported()) { updateBackupStatus('unsupported'); return; }
-    try {
-        const h = await idbGet('backupDir');
-        if (!h) { updateBackupStatus('none'); return; }
-        const perm = await h.queryPermission({ mode: 'readwrite' });
-        if (perm === 'granted') {
-            dirHandle = h;
-            updateBackupStatus('connected');
-            await loadLatestBackup(true);
-            await backupNow(false);
-        } else {
-            // 瀏覽器要求使用者手勢才能重新授權 → 顯示提示按鈕
-            pendingHandle = h;
-            updateBackupStatus('need-permission');
-        }
-    } catch(e) {
-        updateBackupStatus('none');
-    }
-}
-
-// ── 備份檔內容與檔名 ──
+// ── 備份檔名與內容 ──
 function backupFileName() {
-    return BACKUP_PREFIX + new Date().toISOString().split('T')[0] + '.json';  // 每天一個檔
+    return BACKUP_PREFIX + new Date().toISOString().split('T')[0] + '.json';
 }
 function backupSnapshot() {
     return JSON.stringify({
@@ -485,79 +449,219 @@ function backupSnapshot() {
     }, null, 2);
 }
 
-// ── 寫入備份（有變動才寫；force=true 強制寫）──
-async function backupNow(force = false) {
-    if (!dirHandle) {
-        if (force) toast('請先設定備份資料夾', 'error');
-        return;
+// ── UTF-8 ↔ Base64 ──
+function utf8ToB64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
     }
-    const core = JSON.stringify(tasks);
-    if (!force && core === lastBackupCore) return;   // 資料無變動，跳過
+    return btoa(bin);
+}
+function b64ToUtf8(b64) {
+    const bin = atob(b64.replace(/\n/g, ''));
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(u);
+}
 
-    try {
-        const fh = await dirHandle.getFileHandle(backupFileName(), { create: true });
-        const w  = await fh.createWritable();
-        await w.write(backupSnapshot());
-        await w.close();
-        lastBackupCore = core;
-        lastBackupTime = Date.now();
-        const t = new Date().toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
-        updateBackupStatus('connected', ` ${t}`);
-        if (force) toast(`已備份至 ${backupFileName()}`, 'success');
-    } catch(e) {
-        console.error('備份寫入失敗:', e);
-        updateBackupStatus('error');
-        if (force) toast('備份寫入失敗：' + e.message, 'error');
+// ── GitHub API ──
+function ghHeaders() {
+    return {
+        'Authorization': `Bearer ${ghToken}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+    };
+}
+function ghDir() {
+    return (BACKUP_TARGET.path || '').replace(/^\/+|\/+$/g, '');
+}
+function ghContentsUrl(p) {
+    return `https://api.github.com/repos/${BACKUP_TARGET.owner}/${BACKUP_TARGET.repo}/contents/${p}`;
+}
+function ghRef() { return BACKUP_TARGET.branch || 'main'; }
+
+async function ghList() {
+    const url = ghContentsUrl(ghDir()) + `?ref=${ghRef()}`;
+    const r = await fetch(url, { headers: ghHeaders() });
+    if (r.status === 404) return [];
+    if (!r.ok) throw new Error(`GitHub 讀取失敗 (${r.status})`);
+    const arr = await r.json();
+    return Array.isArray(arr) ? arr : [];
+}
+
+async function ghGetFile(name) {
+    const p = ghDir() ? `${ghDir()}/${name}` : name;
+    const r = await fetch(ghContentsUrl(p) + `?ref=${ghRef()}`, { headers: ghHeaders() });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`GitHub 讀取檔案失敗 (${r.status})`);
+    const j = await r.json();
+    return { sha: j.sha, text: b64ToUtf8(j.content) };
+}
+
+async function ghPutFile(name, content) {
+    const p = ghDir() ? `${ghDir()}/${name}` : name;
+    const existing = await ghGetFile(name).catch(() => null);
+    const t = new Date().toLocaleString('zh-TW', { hour12: false });
+    const body = {
+        message: `backup: ${name} (${t})`,
+        content: utf8ToB64(content),
+        branch: ghRef(),
+    };
+    if (existing) body.sha = existing.sha;
+    const r = await fetch(ghContentsUrl(p), {
+        method: 'PUT',
+        headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+        throw new Error(`GitHub 寫入失敗 (${r.status})${r.status === 401 ? '：Token 無效或過期' : r.status === 403 ? '：Token 權限不足' : ''}`);
     }
 }
 
-// ── 掃描資料夾，載入最新日期的備份檔 ──
+// ── 備份寫入（有變動才寫）──
+async function backupNow(force = false) {
+    if (!backupEnabled()) {
+        if (force) toast('備份未啟用：請在維護面板輸入 Token', 'error');
+        return;
+    }
+    const core = JSON.stringify(tasks);
+    if (!force && core === lastBackupCore) return;
+
+    updateBackupDot('busy');
+    try {
+        await ghPutFile(backupFileName(), backupSnapshot());
+        lastBackupCore = core;
+        lastBackupTime = Date.now();
+        const t = new Date().toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        updateBackupDot('ok', `（最後備份 ${t}）`);
+        if (force) toast(`已備份至 GitHub（${backupFileName()}）`, 'success');
+    } catch(e) {
+        console.error('備份失敗:', e);
+        updateBackupDot('error', `：${e.message}`);
+        if (force) toast(e.message, 'error');
+    }
+}
+
+// ── 載入最新備份 ──
+function applyBackupObject(obj, sourceName) {
+    const localSavedAt = localStorage.getItem(LS_SAVED_AT) || '';
+    const fileSavedAt = obj.savedAt || '';
+    if (fileSavedAt > localSavedAt) {
+        tasks = obj.tasks;
+        if (obj.ganttStyle && obj.ganttStyle.fontSize) {
+            ganttStyle = obj.ganttStyle;
+            saveGanttStyle();
+            updateStyleDisplays();
+        }
+        localStorage.setItem(LS_DATA, JSON.stringify(tasks));
+        localStorage.setItem(LS_SAVED_AT, fileSavedAt);
+        renderTable(); renderGantt();
+        toast(`已載入最新備份：${sourceName}`, 'success');
+    }
+    lastBackupCore = JSON.stringify(tasks);
+}
+
 async function loadLatestBackup(apply = false) {
-    if (!dirHandle) return null;
-    let latest = null;
+    if (!backupEnabled()) return null;
     try {
-        for await (const [name, handle] of dirHandle.entries()) {
-            if (handle.kind === 'file' && name.startsWith(BACKUP_PREFIX) && name.endsWith('.json')) {
-                if (!latest || name > latest.name) latest = { name, handle };  // 檔名含日期，字串比較即最新
-            }
-        }
-    } catch(e) { return null; }
-    if (!latest) return null;
-
-    try {
-        const file = await latest.handle.getFile();
-        const obj = JSON.parse(await file.text());
-        if (!obj || !Array.isArray(obj.tasks)) return null;
-
-        if (apply) {
-            const localSavedAt = localStorage.getItem(LS_SAVED_AT) || '';
-            const fileSavedAt  = obj.savedAt || '';
-            // 只有備份檔比本機資料「新」才套用，避免舊備份蓋掉新編輯
-            if (fileSavedAt > localSavedAt) {
-                tasks = obj.tasks;
-                if (obj.ganttStyle && obj.ganttStyle.fontSize) {
-                    ganttStyle = obj.ganttStyle;
-                    saveGanttStyle();
-                    updateStyleDisplays();
-                }
-                localStorage.setItem(LS_DATA, JSON.stringify(tasks));
-                localStorage.setItem(LS_SAVED_AT, fileSavedAt);
-                renderTable(); renderGantt();
-                toast(`已載入最新備份：${latest.name}`, 'success');
-            }
-            lastBackupCore = JSON.stringify(tasks);
-        }
+        const files = await ghList();
+        const backups = files
+            .filter(f => f.type === 'file' && f.name.startsWith(BACKUP_PREFIX) && f.name.endsWith('.json'))
+            .sort((a, b) => b.name.localeCompare(a.name));
+        if (!backups.length) return null;
+        const got = await ghGetFile(backups[0].name);
+        if (!got) return null;
+        const obj = JSON.parse(got.text);
+        if (obj && Array.isArray(obj.tasks) && apply) applyBackupObject(obj, backups[0].name);
         return obj;
     } catch(e) {
-        console.error('讀取備份失敗:', e);
+        console.error('載入備份失敗:', e);
+        updateBackupDot('error', `：${e.message}`);
         return null;
     }
 }
 
-// ── 每小時自動備份（有變動才寫）──
+// ── 開啟頁面：背景靜默啟動 ──
+async function restoreBackupConnection() {
+    if (!backupEnabled()) { updateBackupDot('off'); return; }
+    updateBackupDot('ok');
+    await loadLatestBackup(true);
+    await backupNow(false);
+}
+
+// ── 每小時自動備份 ──
 setInterval(() => { backupNow(false); }, BACKUP_INTERVAL_MS);
 
-// ── 手動匯出（所有瀏覽器都支援的備援方案）──
+// ═══════════════ 🔒 隱藏維護面板 ═══════════════
+function openOwnerDialog() {
+    const m = document.getElementById('owner-dialog');
+    const card = document.getElementById('owner-dialog-card');
+    const info = document.getElementById('owner-target-info');
+    if (info) {
+        info.textContent = (BACKUP_TARGET.owner && BACKUP_TARGET.repo)
+            ? `${BACKUP_TARGET.owner}/${BACKUP_TARGET.repo} @ ${BACKUP_TARGET.branch} → /${ghDir()}`
+            : '⚠️ 尚未設定（請編輯 HTML 內的 BACKUP_TARGET）';
+    }
+    const tk = document.getElementById('owner-token');
+    if (tk) tk.value = ghToken;
+    m.classList.remove('hidden');
+    setTimeout(() => { m.classList.remove('opacity-0'); card.classList.remove('scale-95'); }, 10);
+}
+function closeOwnerDialog() {
+    const m = document.getElementById('owner-dialog');
+    const card = document.getElementById('owner-dialog-card');
+    m.classList.add('opacity-0'); card.classList.add('scale-95');
+    setTimeout(() => m.classList.add('hidden'), 200);
+}
+
+async function ownerSaveToken() {
+    const tk = document.getElementById('owner-token').value.trim();
+    if (!tk) { toast('請輸入 Token', 'error'); return; }
+    if (!BACKUP_TARGET.owner || !BACKUP_TARGET.repo) {
+        toast('BACKUP_TARGET 尚未設定，請先編輯 HTML 程式碼', 'error');
+        return;
+    }
+    const btn = document.getElementById('owner-save-btn');
+    btn.textContent = '⏳ 測試連線中...'; btn.disabled = true;
+    const prev = ghToken;
+    ghToken = tk;
+    try {
+        await ghList();   // 測試（404 = 資料夾不存在也算成功）
+        localStorage.setItem(LS_GH_TOKEN, tk);
+        toast('Token 已儲存，備份已啟用', 'success');
+        closeOwnerDialog();
+        await restoreBackupConnection();
+        await backupNow(true);
+    } catch(e) {
+        ghToken = prev;
+        toast('連線測試失敗：' + e.message, 'error');
+    } finally {
+        btn.textContent = '儲存 Token 並啟用備份'; btn.disabled = false;
+    }
+}
+
+function ownerClearToken() {
+    ghToken = '';
+    try { localStorage.removeItem(LS_GH_TOKEN); } catch(e){}
+    updateBackupDot('off');
+    const tk = document.getElementById('owner-token');
+    if (tk) tk.value = '';
+    toast('Token 已從這台電腦清除', 'success');
+}
+
+// 快捷鍵 Ctrl+Alt+B 或網址 #setup 開啟維護面板
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.altKey && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        openOwnerDialog();
+    }
+});
+if (location.hash === '#setup') {
+    setTimeout(openOwnerDialog, 300);
+}
+
+// ── 手動匯出/匯入（僅維護面板內可觸發）──
 function exportBackupFile() {
     const blob = new Blob([backupSnapshot()], { type: 'application/json' });
     const a = document.createElement('a');
@@ -569,7 +673,6 @@ function exportBackupFile() {
     toast('備份檔已下載', 'success');
 }
 
-// ── 手動匯入還原 ──
 function importBackupFile(input) {
     const file = input.files && input.files[0];
     if (!file) return;
@@ -593,6 +696,7 @@ function importBackupFile(input) {
     reader.readAsText(file);
     input.value = '';
 }
+
 
 // ── Toast ──────────────────────────────────────────────────
 function toast(msg, type='info') {
@@ -651,7 +755,7 @@ function saveData() {
     } catch(e){}
     setTimeout(()=>setSyncStatus('synced'), 300);
     // 距上次備份超過 1 小時且資料有變動 → 補寫備份
-    if (dirHandle && Date.now() - lastBackupTime >= BACKUP_INTERVAL_MS) backupNow(false);
+    if (backupEnabled() && Date.now() - lastBackupTime >= BACKUP_INTERVAL_MS) backupNow(false);
 }
 
 // ── 工具 ──────────────────────────────────────────────────
@@ -1222,8 +1326,10 @@ window.addTask=addTask; window.openDeleteModal=openDeleteModal; window.closeDele
 window.updateTaskField=updateTaskField; window.resetData=resetData; window.exportToPDF=exportToPDF;
 window.setScaleUnit=setScaleUnit; window.cycleColor=cycleColor;
 window.adjustFontSize=adjustFontSize; window.adjustBarHeight=adjustBarHeight;
-window.backupMainAction=backupMainAction; window.backupNow=backupNow;
+window.backupNow=backupNow;
 window.exportBackupFile=exportBackupFile; window.importBackupFile=importBackupFile;
+window.openOwnerDialog=openOwnerDialog; window.closeOwnerDialog=closeOwnerDialog;
+window.ownerSaveToken=ownerSaveToken; window.ownerClearToken=ownerClearToken;
 </script>
 </body>
 </html>
