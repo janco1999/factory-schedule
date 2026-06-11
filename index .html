@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工廠設備進廠與施作時程規畫表</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .gantt-row:hover .gantt-bar { filter: brightness(1.1); }
+        .sortable-ghost { opacity: 0.4; background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
+        .sortable-drag  { background-color: #fff; box-shadow: 0 10px 15px -3px rgba(0,0,0,.1); }
+
+        /* ── 甘特圖區：上下捲動時固定日期表頭 ── */
+        #gantt-container {
+            overflow: auto;
+            position: relative;
+        }
+        #gantt-header-sticky {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            background: #fff;
+            box-shadow: 0 2px 6px rgba(0,0,0,.08);
+        }
+
+        /* 簽約 / 驗收 標籤徽章 */
+        .milestone-badge {
+            position: absolute;
+            font-size: 9px;
+            font-weight: 700;
+            line-height: 1;
+            padding: 1px 4px;
+            border-radius: 3px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 20;
+            border: 1px solid currentColor;
+        }
+        .milestone-badge.contract {
+            top: -13px;
+            transform: translateX(-50%);
+            background: #fff;
+        }
+        .milestone-badge.payment {
+            bottom: -13px;
+            transform: translateX(-50%);
+            background: #fff;
+        }
+        /* 連接虛線 */
+        .milestone-line {
+            position: absolute;
+            top: 50%;
+            height: 0;
+            border-top: 1.5px dashed;
+            z-index: 5;
+            pointer-events: none;
+        }
+        /* 節點圓點 */
+        .milestone-dot {
+            position: absolute;
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 15;
+            cursor: default;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans p-4 md:p-6 h-screen flex flex-col min-w-0">
+
+<header class="mb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0">
+    <div>
+        <h1 class="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+            🏭 工廠設備進廠與施作時程規畫表
+        </h1>
+            </div>
+    <div class="flex items-center gap-3 shrink-0">
+        <div id="sync-status" class="shrink-0">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                <span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-amber-400 animate-pulse"></span>⏳ 讀取中...
+            </span>
+        </div>
+        <button onclick="exportToPDF()" id="pdf-btn"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-all flex items-center gap-2 active:scale-95">
+            📄 匯出 PDF
+        </button>
+    </div>
+</header>
+
+<main class="flex-1 flex flex-col overflow-hidden" id="main-layout">
+
+    <!-- ── 上半：任務表格 ── -->
+    <section id="table-section"
+        class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col min-h-[150px] shrink-0"
+        style="height: 360px;">
+        <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex justify-between items-center shrink-0">
+            <h2 class="font-semibold text-slate-700 text-sm">📋 任務排程設定</h2>
+            <div class="flex gap-2">
+                <button onclick="addTask()"
+                    class="text-xs bg-blue-50 border border-blue-200 hover:bg-blue-100 px-3 py-1.5 rounded shadow-sm text-blue-600 font-medium">
+                    ➕ 新增任務
+                </button>
+                <button onclick="resetData()"
+                    class="text-xs bg-white border border-slate-300 hover:bg-slate-50 px-3 py-1.5 rounded shadow-sm text-slate-600">
+                    ↺ 重設
+                </button>
+            </div>
+        </div>
+        <div class="overflow-auto flex-1">
+            <table class="w-full text-left border-collapse min-w-[1100px]">
+                <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                    <tr>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-10 text-center">排序</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-7 text-center">#</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 min-w-[130px]">任務名稱</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 min-w-[90px]">負責廠商</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">簽約/訂金日期</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">開始日期</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">結束日期</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">驗收/尾款日期</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-14 text-center">工期</th>
+                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-10 text-center">刪除</th>
+                    </tr>
+                </thead>
+                <tbody id="task-table-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ── 中間拉桿 ── -->
+    <div id="resize-handle"
+        class="h-4 flex items-center justify-center cursor-row-resize hover:bg-slate-200/80 active:bg-blue-200 transition-colors rounded-lg my-1 select-none shrink-0 group">
+        <div class="w-16 h-1 bg-slate-300 group-hover:bg-slate-400 rounded transition-colors"></div>
+    </div>
+
+    <!-- ── 下半：甘特圖 ── -->
+    <section id="gantt-section"
+        class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-[150px]">
+        <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 shrink-0 flex justify-between items-center">
+            <h2 class="font-semibold text-slate-700 text-sm">📊 時程表 </h2>
+            <div class="flex items-center gap-3">
+                <!-- 圖例 -->
+                <div class="hidden md:flex items-center gap-3 text-xs text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
+                    <span class="flex items-center gap-1">
+                        <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded border border-blue-400 text-blue-600 bg-white leading-none">簽約</span> 訂金日
+                    </span>
+                    <span class="flex items-center gap-1">
+                        <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded border border-amber-500 text-amber-600 bg-white leading-none">驗收</span> 尾款日
+                    </span>
+                    <span class="flex items-center gap-1">
+                        <span class="inline-block w-5 border-t-2 border-dashed border-slate-400"></span> 關聯期
+                    </span>
+                </div>
+                <!-- 字體大小調整 -->
+                <div class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200 text-xs select-none">
+                    <span class="text-slate-500 font-medium">字體</span>
+                    <button onclick="adjustFontSize(-1)" class="w-5 h-5 flex items-center justify-center rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">−</button>
+                    <span id="font-size-display" class="w-7 text-center font-mono font-semibold text-slate-700">12</span>
+                    <button onclick="adjustFontSize(1)" class="w-5 h-5 flex items-center justify-center rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">＋</button>
+                </div>
+                <!-- Bar 高度調整 -->
+                <div class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200 text-xs select-none">
+                    <span class="text-slate-500 font-medium">Bar</span>
+                    <button onclick="adjustBarHeight(-2)" class="w-5 h-5 flex items-center justify-center rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">−</button>
+                    <span id="bar-height-display" class="w-7 text-center font-mono font-semibold text-slate-700">28</span>
+                    <button onclick="adjustBarHeight(2)" class="w-5 h-5 flex items-center justify-center rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">＋</button>
+                </div>
+                <!-- 刻度切換 -->
+                <div class="flex items-center gap-1 bg-slate-200 p-0.5 rounded-lg text-xs select-none">
+                    <button onclick="setScaleUnit('day')" id="btn-scale-day"
+                        class="px-2.5 py-1 rounded-md font-medium text-slate-500 hover:text-slate-800 transition-all">每日</button>
+                    <button onclick="setScaleUnit('week')" id="btn-scale-week"
+                        class="px-2.5 py-1 rounded-md font-semibold bg-white shadow-sm text-slate-800 transition-all">每週</button>
+                </div>
+            </div>
+        </div>
+        <!-- gantt-container 現在負責上下捲動 -->
+        <div class="flex-1 overflow-auto relative" id="gantt-container">
+            <!-- JS 動態注入 sticky header + bars -->
+        </div>
+    </section>
+</main>
+
+<!-- 刪除對話框 -->
+<div id="delete-modal"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+    <div id="delete-modal-card"
+        class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-sm w-full mx-4 overflow-hidden transform scale-95 transition-transform duration-200">
+        <div class="p-5">
+            <div class="flex items-center gap-3 text-red-600 mb-2">
+                <span class="text-xl">⚠️</span>
+                <h3 class="text-base font-bold">確定要刪除此任務？</h3>
+            </div>
+            <p class="text-slate-500 text-sm">刪除後無法復原。</p>
+        </div>
+        <div class="bg-slate-50 px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
+            <button onclick="closeDeleteModal()"
+                class="px-4 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50">取消</button>
+            <button id="confirm-delete-btn"
+                class="px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm text-white">確認刪除</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// ① 擴充色盤：24 色，hex 同步，顏色不重複
+// ═══════════════════════════════════════════════════════════
+const COLOR_MAP = {
+    'c-red':        '#ef4444',
+    'c-rose':       '#f43f5e',
+    'c-pink':       '#ec4899',
+    'c-fuchsia':    '#d946ef',
+    'c-purple':     '#a855f7',
+    'c-violet':     '#8b5cf6',
+    'c-indigo':     '#6366f1',
+    'c-blue':       '#3b82f6',
+    'c-sky':        '#0ea5e9',
+    'c-cyan':       '#06b6d4',
+    'c-teal':       '#14b8a6',
+    'c-emerald':    '#10b981',
+    'c-green':      '#22c55e',
+    'c-lime':       '#84cc16',
+    'c-yellow':     '#eab308',
+    'c-amber':      '#f59e0b',
+    'c-orange':     '#f97316',
+    'c-red-dark':   '#b91c1c',
+    'c-brown':      '#92400e',
+    'c-olive':      '#4d7c0f',
+    'c-slate':      '#475569',
+    'c-zinc':       '#71717a',
+    'c-stone':      '#78716c',
+    'c-navy':       '#1e40af',
+};
+const COLOR_PALETTE = Object.keys(COLOR_MAP);
+
+function hex(key) { return COLOR_MAP[key] || '#6366f1'; }
+
+function hexToRgbArr(h) {
+    return [
+        parseInt(h.slice(1,3),16),
+        parseInt(h.slice(3,5),16),
+        parseInt(h.slice(5,7),16),
+    ];
+}
+
+// 取得目前已使用的顏色集合
+function usedColors(excludeId = null) {
+    return new Set(tasks.filter(t => t.id !== excludeId).map(t => t.color));
+}
+
+// 取得下一個未使用顏色（新增 or 循環換色）
+function nextUnusedColor(currentColor = null, excludeId = null) {
+    const used = usedColors(excludeId);
+    const unused = COLOR_PALETTE.filter(c => !used.has(c));
+    if (unused.length === 0) return COLOR_PALETTE[0]; // 全用完才重複
+
+    if (currentColor === null) return unused[0];
+
+    // 循環：從 currentColor 的下一個開始找未使用的
+    const curIdx = COLOR_PALETTE.indexOf(currentColor);
+    for (let i = 1; i <= COLOR_PALETTE.length; i++) {
+        const candidate = COLOR_PALETTE[(curIdx + i) % COLOR_PALETTE.length];
+        if (!used.has(candidate)) return candidate;
+    }
+    return unused[0];
+}
+
+// ═══════════════════════════════════════════════════════════
+// 資料
+// ═══════════════════════════════════════════════════════════
+const defaultTasks = [
+    { id:1,  name:'舊產線拆除整地',  start:'2026-07-01', end:'2026-07-10', color:'c-red',      contractor:'齊力拆除',    contractDate:'2026-06-15', paymentDate:'2026-07-15' },
+    { id:2,  name:'隔間拆除/整地',   start:'2026-07-05', end:'2026-07-15', color:'c-orange',   contractor:'齊力拆除',    contractDate:'2026-06-15', paymentDate:'2026-07-20' },
+    { id:3,  name:'水電工程',         start:'2026-07-16', end:'2026-08-20', color:'c-blue',     contractor:'宏達水電',    contractDate:'2026-07-05', paymentDate:'2026-08-25' },
+    { id:4,  name:'瓦斯管線',         start:'2026-07-20', end:'2026-08-10', color:'c-cyan',     contractor:'欣欣天然氣',  contractDate:'2026-07-10', paymentDate:'2026-08-15' },
+    { id:5,  name:'無障礙廁所設置',  start:'2026-08-01', end:'2026-08-15', color:'c-teal',     contractor:'大亞泥作',    contractDate:'2026-07-20', paymentDate:'2026-08-20' },
+    { id:6,  name:'設備搬運',         start:'2026-08-15', end:'2026-08-22', color:'c-amber',    contractor:'捷運起重',    contractDate:'2026-08-01', paymentDate:'2026-08-25' },
+    { id:7,  name:'鍋爐設備',         start:'2026-08-20', end:'2026-09-10', color:'c-indigo',   contractor:'鼎盛鍋爐',    contractDate:'2026-08-05', paymentDate:'2026-09-20' },
+    { id:8,  name:'環保設備',         start:'2026-08-25', end:'2026-09-15', color:'c-emerald',  contractor:'綠能環控',    contractDate:'2026-08-10', paymentDate:'2026-09-25' },
+    { id:9,  name:'新設陽極產線',    start:'2026-09-01', end:'2026-10-10', color:'c-purple',   contractor:'台灣陽極',    contractDate:'2026-08-15', paymentDate:'2026-10-25' },
+    { id:10, name:'工廠登記變更',    start:'2026-09-15', end:'2026-11-15', color:'c-slate',    contractor:'和安事務所',  contractDate:'2026-09-01', paymentDate:'2026-11-20' },
+];
+
+let tasks = JSON.parse(JSON.stringify(defaultTasks));
+let taskToDeleteId = null;
+const DAY_MS = 86400000;
+const LS_DATA   = 'factory_schedule_data_v2';
+const LS_HEIGHT = 'factory_schedule_panel_height';
+const LS_GANTT_STYLE = 'factory_gantt_style';
+let scaleUnit = 'week';
+
+// ── 甘特圖顯示設定（字體/Bar 大小，可調整並記憶）──
+let ganttStyle = { fontSize: 12, barHeight: 28 };
+try {
+    const gs = JSON.parse(localStorage.getItem(LS_GANTT_STYLE));
+    if (gs && gs.fontSize) ganttStyle = gs;
+} catch(e){}
+
+function saveGanttStyle() {
+    try { localStorage.setItem(LS_GANTT_STYLE, JSON.stringify(ganttStyle)); } catch(e){}
+}
+
+function adjustFontSize(delta) {
+    ganttStyle.fontSize = Math.max(8, Math.min(24, ganttStyle.fontSize + delta));
+    saveGanttStyle();
+    updateStyleDisplays();
+    renderGantt();
+}
+
+function adjustBarHeight(delta) {
+    ganttStyle.barHeight = Math.max(16, Math.min(56, ganttStyle.barHeight + delta));
+    saveGanttStyle();
+    updateStyleDisplays();
+    renderGantt();
+}
+
+function updateStyleDisplays() {
+    const f = document.getElementById('font-size-display');
+    const b = document.getElementById('bar-height-display');
+    if (f) f.textContent = ganttStyle.fontSize;
+    if (b) b.textContent = ganttStyle.barHeight;
+}
+
+// ── Toast ──────────────────────────────────────────────────
+function toast(msg, type='info') {
+    const el = document.createElement('div');
+    el.className = `fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg shadow-lg text-white text-sm font-medium transition-all duration-300 translate-y-8 opacity-0 ${type==='error'?'bg-red-500':type==='success'?'bg-green-500':'bg-indigo-600'}`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.remove('translate-y-8','opacity-0'));
+    setTimeout(() => { el.classList.add('translate-y-8','opacity-0'); setTimeout(()=>el.remove(),300); }, 3500);
+}
+
+// ── 狀態列 ────────────────────────────────────────────────
+function setSyncStatus(s) {
+    const el = document.getElementById('sync-status');
+    if (!el) return;
+    el.innerHTML = {
+        loading: `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800"><span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-amber-400 animate-pulse"></span>⏳ 讀取中...</span>`,
+        saving:  `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"><span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-blue-400 animate-bounce"></span>儲存中...</span>`,
+        synced:  `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"><span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-green-500"></span>💾 已儲存</span>`,
+    }[s] || '';
+}
+
+// ── 讀寫 ──────────────────────────────────────────────────
+function loadData() {
+    setSyncStatus('loading');
+    try {
+        const d = localStorage.getItem(LS_DATA);
+        tasks = d ? JSON.parse(d) : JSON.parse(JSON.stringify(defaultTasks));
+        if (!Array.isArray(tasks)||!tasks.length) tasks = JSON.parse(JSON.stringify(defaultTasks));
+        tasks.forEach(t => {
+            if (!t.contractor)   t.contractor = '';
+            if (!t.contractDate) t.contractDate = '';
+            if (!t.paymentDate)  t.paymentDate = '';
+            // 舊版 bg-xxx 格式自動轉換
+            if (t.color && t.color.startsWith('bg-')) {
+                const oldToNew = { 'bg-red-400':'c-red','bg-orange-400':'c-orange','bg-blue-500':'c-blue','bg-cyan-500':'c-cyan','bg-teal-500':'c-teal','bg-amber-500':'c-amber','bg-indigo-500':'c-indigo','bg-emerald-500':'c-emerald','bg-purple-500':'c-purple','bg-slate-600':'c-slate','bg-pink-500':'c-pink','bg-lime-500':'c-lime','bg-fuchsia-500':'c-fuchsia' };
+                t.color = oldToNew[t.color] || 'c-blue';
+            }
+        });
+        const h = localStorage.getItem(LS_HEIGHT);
+        if (h) document.getElementById('table-section').style.height = h + 'px';
+    } catch(e) {
+        tasks = JSON.parse(JSON.stringify(defaultTasks));
+    }
+    setSyncStatus('synced');
+    renderTable();
+    updateStyleDisplays();
+    setScaleUnit(scaleUnit);
+}
+
+function saveData() {
+    setSyncStatus('saving');
+    try { localStorage.setItem(LS_DATA, JSON.stringify(tasks)); } catch(e){}
+    setTimeout(()=>setSyncStatus('synced'), 300);
+}
+
+// ── 工具 ──────────────────────────────────────────────────
+function calcDays(s,e) { return s&&e ? Math.round((new Date(e)-new Date(s))/DAY_MS)+1 : 0; }
+
+function dateBounds() {
+    let mn = Infinity, mx = -Infinity;
+    tasks.forEach(t => {
+        [t.start,t.end,t.contractDate,t.paymentDate].forEach(d => {
+            if (!d) return;
+            const v = new Date(d).getTime();
+            if (v < mn) mn = v;
+            if (v > mx) mx = v;
+        });
+    });
+    if (!isFinite(mn)) { mn = Date.now(); mx = Date.now(); }
+    return { min: new Date(mn), max: new Date(mx) };
+}
+
+// ── 初始化 ────────────────────────────────────────────────
+if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>{ loadData(); initSplitter(); });
+else { loadData(); initSplitter(); }
+
+// ── Splitter ──────────────────────────────────────────────
+function initSplitter() {
+    const tbl = document.getElementById('table-section');
+    const handle = document.getElementById('resize-handle');
+    const main = document.getElementById('main-layout');
+    if (!tbl||!handle||!main) return;
+    let drag = false;
+    const move = y => {
+        if (!drag) return;
+        let h = y - main.getBoundingClientRect().top - 8;
+        h = Math.max(150, Math.min(main.getBoundingClientRect().height-150, h));
+        tbl.style.height = h+'px';
+        localStorage.setItem(LS_HEIGHT, h);
+    };
+    handle.addEventListener('mousedown', ()=>{ drag=true; document.body.style.cursor='row-resize'; });
+    document.addEventListener('mousemove', e=>move(e.clientY));
+    document.addEventListener('mouseup', ()=>{ drag=false; document.body.style.cursor=''; });
+    handle.addEventListener('touchstart', ()=>{ drag=true; });
+    document.addEventListener('touchmove', e=>move(e.touches[0].clientY));
+    document.addEventListener('touchend', ()=>{ drag=false; });
+}
+
+// ── CRUD ──────────────────────────────────────────────────
+function addTask() {
+    const newId = tasks.length ? Math.max(...tasks.map(t=>t.id))+1 : 1;
+    const last  = tasks.length ? tasks[tasks.length-1] : null;
+    const s = last ? last.end : new Date().toISOString().split('T')[0];
+    const e = new Date(new Date(s).getTime()+7*DAY_MS).toISOString().split('T')[0];
+    const color = nextUnusedColor();
+    tasks.push({ id:newId, name:'新任務', start:s, end:e, contractor:'', contractDate:'', paymentDate:'', color });
+    renderTable(); renderGantt(); saveData();
+    setTimeout(()=>{ const el=document.getElementById('task-table-body').parentElement; if(el) el.scrollTop=el.scrollHeight; },50);
+}
+
+function openDeleteModal(id) {
+    taskToDeleteId=id;
+    const m=document.getElementById('delete-modal'), c=document.getElementById('delete-modal-card');
+    m.classList.remove('hidden');
+    setTimeout(()=>{ m.classList.remove('opacity-0'); c.classList.remove('scale-95'); },10);
+}
+function closeDeleteModal() {
+    const m=document.getElementById('delete-modal'), c=document.getElementById('delete-modal-card');
+    m.classList.add('opacity-0'); c.classList.add('scale-95');
+    setTimeout(()=>{ m.classList.add('hidden'); taskToDeleteId=null; },200);
+}
+document.getElementById('confirm-delete-btn').addEventListener('click',()=>{
+    if (taskToDeleteId!==null) { tasks=tasks.filter(t=>t.id!==taskToDeleteId); renderTable(); renderGantt(); saveData(); closeDeleteModal(); }
+});
+
+function updateTaskField(id,field,value) {
+    const t=tasks.find(t=>t.id===id);
+    if (!t) return;
+    t[field]=value;
+    if (field==='start'&&new Date(t.end)<new Date(t.start)) t.end=t.start;
+    if (field==='end'  &&new Date(t.end)<new Date(t.start)) t.start=t.end;
+    renderTable(); renderGantt(); saveData();
+}
+
+// ② 循環換色：只跳到未使用的顏色
+function cycleColor(id) {
+    const t=tasks.find(t=>t.id===id);
+    if (!t) return;
+    t.color = nextUnusedColor(t.color, id);
+    renderTable(); renderGantt(); saveData();
+}
+
+function resetData() {
+    tasks=JSON.parse(JSON.stringify(defaultTasks));
+    renderTable(); renderGantt(); saveData();
+    toast('已還原為預設資料','success');
+}
+
+// ── 渲染表格 ──────────────────────────────────────────────
+function renderTable() {
+    const tbody=document.getElementById('task-table-body');
+    if (!tbody) return;
+    tbody.innerHTML='';
+    tasks.forEach((task,i)=>{
+        const days=calcDays(task.start,task.end);
+        const hexColor=hex(task.color);
+        const tr=document.createElement('tr');
+        tr.className='hover:bg-slate-50/50 transition-colors';
+        tr.dataset.id=task.id;
+        tr.innerHTML=`
+            <td class="py-1.5 px-2 border-b border-slate-100 text-center select-none">
+                <span class="drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 text-base px-2 py-1 inline-block">☰</span>
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100 text-center text-slate-500 font-mono text-xs">${i+1}</td>
+            <td class="py-1.5 px-2 border-b border-slate-100">
+                <div class="flex items-center gap-2">
+                    <button onclick="cycleColor(${task.id})" title="點擊換色（自動跳過已用色）"
+                        style="background:${hexColor};"
+                        class="w-4 h-4 rounded-full shrink-0 hover:scale-125 transition-transform focus:outline-none ring-2 ring-offset-1 ring-transparent hover:ring-slate-300"></button>
+                    <input type="text" value="${task.name}" onchange="updateTaskField(${task.id},'name',this.value)"
+                        class="border-transparent bg-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded px-2 py-0.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="任務名稱">
+                </div>
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100">
+                <input type="text" value="${task.contractor||''}" onchange="updateTaskField(${task.id},'contractor',this.value)"
+                    class="border-transparent bg-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded px-2 py-0.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="廠商名稱">
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100">
+                <input type="date" value="${task.contractDate||''}" onchange="updateTaskField(${task.id},'contractDate',this.value)"
+                    class="border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-500 w-full text-slate-600">
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100">
+                <input type="date" value="${task.start}" onchange="updateTaskField(${task.id},'start',this.value)"
+                    class="border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-500 w-full">
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100">
+                <input type="date" value="${task.end}" onchange="updateTaskField(${task.id},'end',this.value)"
+                    class="border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-500 w-full">
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100">
+                <input type="date" value="${task.paymentDate||''}" onchange="updateTaskField(${task.id},'paymentDate',this.value)"
+                    class="border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-500 w-full text-slate-600">
+            </td>
+            <td class="py-1.5 px-2 border-b border-slate-100 text-slate-600 font-mono text-xs text-center">${days}天</td>
+            <td class="py-1.5 px-2 border-b border-slate-100 text-center">
+                <button onclick="openDeleteModal(${task.id})" class="text-slate-400 hover:text-red-500 transition-colors p-1">🗑️</button>
+            </td>`;
+        tbody.appendChild(tr);
+    });
+    initDragAndDrop();
+}
+
+function initDragAndDrop() {
+    const tbody=document.getElementById('task-table-body');
+    if (typeof Sortable!=='undefined'&&tbody) {
+        Sortable.create(tbody,{
+            handle:'.drag-handle', animation:180,
+            ghostClass:'sortable-ghost', dragClass:'sortable-drag',
+            onEnd(evt){
+                if (evt.oldIndex===evt.newIndex) return;
+                const [item]=tasks.splice(evt.oldIndex,1);
+                tasks.splice(evt.newIndex,0,item);
+                renderTable(); renderGantt(); saveData();
+            }
+        });
+    }
+}
+
+function setScaleUnit(unit) {
+    scaleUnit=unit;
+    const bd=document.getElementById('btn-scale-day'), bw=document.getElementById('btn-scale-week');
+    const active='px-2.5 py-1 rounded-md font-semibold bg-white shadow-sm text-slate-800 transition-all';
+    const inactive='px-2.5 py-1 rounded-md font-medium text-slate-500 hover:text-slate-800 transition-all';
+    if(bd&&bw){ bd.className=unit==='day'?active:inactive; bw.className=unit==='week'?active:inactive; }
+    renderGantt();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ③ 渲染甘特圖：sticky header + 標籤式里程碑
+// ═══════════════════════════════════════════════════════════
+function renderGantt() {
+    const container=document.getElementById('gantt-container');
+    if (!container) return;
+    container.innerHTML='';
+    if (!tasks.length) return;
+
+    const {min:rawMin,max:rawMax}=dateBounds();
+    const minDate=new Date(rawMin.getTime()-5*DAY_MS);
+    const maxDate=new Date(rawMax.getTime()+5*DAY_MS);
+    const stepDays=(scaleUnit==='week')?7:1;
+    const totalDays=Math.round((maxDate-minDate)/DAY_MS)+1;
+    const totalSteps=Math.ceil(totalDays/stepDays);
+    const DW=(scaleUnit==='week')?52:24;
+    const chartW=totalSteps*DW;
+
+    // ── 套用使用者字體/Bar 大小設定 ──
+    const FS  = ganttStyle.fontSize;          // 主字體 (預設 12)
+    const BH  = ganttStyle.barHeight;         // Bar 高度 (預設 28)
+    const badgeFS = Math.max(9, FS - 2);      // 里程碑標籤字體
+    const badgeH  = badgeFS + 8;              // 標籤高度(含padding/border)
+    const barTop  = badgeH + 4;               // Bar 距列頂
+    const rowH    = badgeH + 4 + BH + 4 + badgeH;  // 整列高度
+    const midY    = barTop + BH/2;            // Bar 垂直中心
+    const dotSize = Math.max(7, Math.round(BH*0.3));
+    const hdrMonthFS = Math.max(10, FS - 1);
+    const hdrDateFS  = Math.max(8,  FS - 3);
+    const monthRowH  = hdrMonthFS + 22;
+    const dateRowH   = hdrDateFS + 12;
+
+    // ── ② Sticky header wrapper ──────────────────────────
+    const stickyHdr=document.createElement('div');
+    stickyHdr.id='gantt-header-sticky';
+    stickyHdr.style.cssText=`position:sticky;top:0;z-index:30;width:${chartW}px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.07);`;
+
+    // 月份列
+    const monthRow=document.createElement('div');
+    monthRow.style.cssText=`display:flex;height:${monthRowH}px;border-bottom:1px solid #e2e8f0;`;
+
+    const monthGroups=[];
+    let cur=null;
+    for (let i=0;i<totalSteps;i++){
+        const d=new Date(minDate.getTime()+i*stepDays*DAY_MS);
+        const key=`${d.getFullYear()}-${d.getMonth()}`;
+        if (!cur||cur.key!==key){ cur={key,year:d.getFullYear(),month:d.getMonth()+1,count:0}; monthGroups.push(cur); }
+        cur.count++;
+    }
+    monthGroups.forEach(mg=>{
+        const mw=mg.count*DW;
+        const m=document.createElement('div');
+        m.style.cssText=`width:${mw}px;flex-shrink:0;border-right:1px solid #cbd5e1;display:flex;align-items:center;justify-content:center;background:#f8fafc;font-size:${hdrMonthFS}px;font-weight:700;color:#334155;box-sizing:border-box;`;
+        m.textContent=`${mg.year}年${String(mg.month).padStart(2,'0')}月`;
+        monthRow.appendChild(m);
+    });
+
+    // 日期/週次列
+    const dateRow=document.createElement('div');
+    dateRow.style.cssText=`display:flex;height:${dateRowH}px;border-bottom:1px solid #e2e8f0;`;
+    for (let i=0;i<totalSteps;i++){
+        const d=new Date(minDate.getTime()+i*stepDays*DAY_MS);
+        const isWE=(scaleUnit==='day')&&(d.getDay()===0||d.getDay()===6);
+        const col=document.createElement('div');
+        col.style.cssText=`width:${DW}px;flex-shrink:0;border-right:1px solid #e8ecf0;display:flex;align-items:center;justify-content:center;font-size:${hdrDateFS}px;color:#64748b;box-sizing:border-box;${isWE?'background:rgba(241,245,249,.6)':''}`;
+        col.textContent=(scaleUnit==='week')
+            ?`${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`
+            :d.getDate();
+        dateRow.appendChild(col);
+    }
+
+    stickyHdr.appendChild(monthRow);
+    stickyHdr.appendChild(dateRow);
+    container.appendChild(stickyHdr);
+
+    // ── 甘特條目區（絕對定位在容器內，不影響 sticky） ──
+    const barsWrap=document.createElement('div');
+    barsWrap.style.cssText=`width:${chartW}px;position:relative;padding:10px 0 20px;`;
+
+    // 背景格線
+    const grid=document.createElement('div');
+    grid.style.cssText=`position:absolute;top:0;left:0;width:${chartW}px;height:100%;display:flex;pointer-events:none;z-index:0;`;
+    for (let i=0;i<totalSteps;i++){
+        const d=new Date(minDate.getTime()+i*stepDays*DAY_MS);
+        const isWE=(scaleUnit==='day')&&(d.getDay()===0||d.getDay()===6);
+        const g=document.createElement('div');
+        g.style.cssText=`width:${DW}px;flex-shrink:0;border-right:1px solid #f1f5f9;height:100%;box-sizing:border-box;${isWE?'background:rgba(241,245,249,.3)':''}`;
+        grid.appendChild(g);
+    }
+    barsWrap.appendChild(grid);
+
+    tasks.forEach(task=>{
+        const s=new Date(task.start), e=new Date(task.end);
+        const off=(s-minDate)/DAY_MS;
+        const dur=calcDays(task.start,task.end);
+        const leftPos=(off/stepDays)*DW;
+        const width=(dur/stepDays)*DW;
+        const hexColor=hex(task.color);
+
+        // 每行容器（高度依 Bar/字體設定動態計算）
+        const row=document.createElement('div');
+        row.className='gantt-row';
+        row.style.cssText=`height:${rowH}px;position:relative;margin-bottom:4px;`;
+
+        // ── 1. 簽約/訂金標籤 ──────────────────────────────
+        if (task.contractDate) {
+            const cDate=new Date(task.contractDate);
+            const cx=((cDate-minDate)/DAY_MS/stepDays)*DW;
+            const barStart=leftPos;
+
+            // 虛線延伸（若簽約日早於開工）
+            if (cx < barStart-1) {
+                const line=document.createElement('div');
+                line.style.cssText=`position:absolute;left:${cx}px;width:${barStart-cx}px;border-top:1.5px dashed ${hexColor};top:${midY}px;z-index:5;pointer-events:none;`;
+                row.appendChild(line);
+            }
+
+            // 節點圓點
+            const dot=document.createElement('div');
+            dot.style.cssText=`position:absolute;width:${dotSize}px;height:${dotSize}px;border-radius:50%;border:2px solid #fff;left:${cx}px;top:${midY}px;transform:translate(-50%,-50%);background:${hexColor};z-index:15;box-shadow:0 0 0 1px ${hexColor};`;
+            row.appendChild(dot);
+
+            // 上方文字標籤
+            const badge=document.createElement('div');
+            badge.style.cssText=`position:absolute;left:${cx}px;top:2px;transform:translateX(-50%);font-size:${badgeFS}px;font-weight:700;line-height:1;padding:2px 5px;border-radius:3px;white-space:nowrap;background:#fff;color:${hexColor};border:1px solid ${hexColor};z-index:20;pointer-events:none;`;
+            badge.textContent=`簽約 ${task.contractDate.slice(5)}`;
+            row.appendChild(badge);
+        }
+
+        // ── 2. 主進度條 ───────────────────────────────────
+        const bar=document.createElement('div');
+        bar.className='gantt-bar';
+        bar.style.cssText=`
+            position:absolute;height:${BH}px;top:${barTop}px;border-radius:${Math.min(8,BH*0.25)}px;
+            left:${leftPos}px;width:${width}px;
+            background:${hexColor};
+            display:flex;align-items:center;padding:0 10px;
+            font-size:${FS}px;color:#fff;font-weight:600;
+            white-space:nowrap;overflow:hidden;cursor:default;
+            box-shadow:0 1px 4px rgba(0,0,0,.15);z-index:10;`;
+        const label=`${task.name}${task.contractor?` (${task.contractor})`:''}`;
+        // 寬度門檻隨字體縮放
+        const minLabelW = FS * 7;
+        bar.textContent = width > minLabelW ? label : '';
+        bar.title=`${task.name}${task.contractor?` ─ ${task.contractor}`:''}｜${task.start} ～ ${task.end}`;
+        row.appendChild(bar);
+
+        // 條塊太窄時，常駐顯示在條塊右側
+        if (width <= minLabelW) {
+            const lbl=document.createElement('span');
+            lbl.style.cssText=`position:absolute;left:${leftPos+width+6}px;top:${barTop + BH/2}px;transform:translateY(-50%);font-size:${FS}px;color:#334155;font-weight:600;white-space:nowrap;z-index:15;pointer-events:none;`;
+            lbl.textContent=label;
+            row.appendChild(lbl);
+        }
+
+        // ── 3. 驗收/尾款標籤 ──────────────────────────────
+        if (task.paymentDate) {
+            const pDate=new Date(task.paymentDate);
+            const px=((pDate-minDate)/DAY_MS/stepDays)*DW;
+            const barEnd=leftPos+width;
+
+            // 虛線延伸（若驗收日晚於完工）
+            if (px > barEnd+1) {
+                const line=document.createElement('div');
+                line.style.cssText=`position:absolute;left:${barEnd}px;width:${px-barEnd}px;border-top:1.5px dashed ${hexColor};top:${midY}px;z-index:5;pointer-events:none;`;
+                row.appendChild(line);
+            }
+
+            // 節點圓點
+            const dot=document.createElement('div');
+            dot.style.cssText=`position:absolute;width:${dotSize}px;height:${dotSize}px;border-radius:50%;border:2px solid #fff;left:${px}px;top:${midY}px;transform:translate(-50%,-50%);background:${hexColor};z-index:15;box-shadow:0 0 0 1px ${hexColor};`;
+            row.appendChild(dot);
+
+            // 下方文字標籤
+            const badge=document.createElement('div');
+            badge.style.cssText=`position:absolute;left:${px}px;bottom:2px;transform:translateX(-50%);font-size:${badgeFS}px;font-weight:700;line-height:1;padding:2px 5px;border-radius:3px;white-space:nowrap;background:#fff;color:${hexColor};border:1px solid ${hexColor};z-index:20;pointer-events:none;`;
+            badge.textContent=`驗收 ${task.paymentDate.slice(5)}`;
+            row.appendChild(badge);
+        }
+
+        barsWrap.appendChild(row);
+    });
+
+    container.appendChild(barsWrap);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 📄 PDF 匯出
+// ═══════════════════════════════════════════════════════════
+async function exportToPDF() {
+    const btn=document.getElementById('pdf-btn');
+    btn.innerHTML='⏳ 載入字型...'; btn.disabled=true;
+    try {
+        if (!tasks||!tasks.length) { toast('尚無任務資料','error'); return; }
+        const {jsPDF}=window.jspdf;
+        const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+
+        // 嘗試載入中文字型
+        let fontBuffer=null;
+        for (const url of [
+            'https://cdn.jsdelivr.net/gh/justfont/open-huninn-font@master/font/jf-openhuninn-1.1.ttf',
+            'https://raw.githubusercontent.com/justfont/open-huninn-font/master/font/jf-openhuninn-1.1.ttf'
+        ]) {
+            try {
+                const res=await fetch(url);
+                if (res.ok){ fontBuffer=await res.arrayBuffer(); break; }
+            } catch(_){}
+        }
+        if (!fontBuffer) throw new Error('字型下載失敗');
+        const fb64=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result.split(',')[1]); fr.readAsDataURL(new Blob([fontBuffer])); });
+        doc.addFileToVFS('huninn.ttf',fb64);
+        doc.addFont('huninn.ttf','huninn','normal');
+        doc.setFont('huninn','normal');
+        btn.innerHTML='⏳ 排版繪製...';
+
+        const PW=297,PH=210,M=10,CW=PW-M*2;
+        const {min:rawMin,max:rawMax}=dateBounds();
+        const minDate=new Date(rawMin.getTime()-3*DAY_MS);
+        const maxDate=new Date(rawMax.getTime()+3*DAY_MS);
+        const stepDays=(scaleUnit==='week')?7:1;
+        const totalDays=Math.round((maxDate-minDate)/DAY_MS)+1;
+        const totalSteps=Math.ceil(totalDays/stepDays);
+
+        doc.setFontSize(6.5);
+        let maxNW=20,maxCW=14;
+        tasks.forEach(t=>{
+            const nw=doc.getTextWidth(t.name)+6;if(nw>maxNW)maxNW=nw;
+            const cw=doc.getTextWidth(t.contractor||'')+4;if(cw>maxCW)maxCW=cw;
+        });
+
+        const COL_NO=7, COL_NM=Math.max(20,Math.min(48,maxNW)), COL_CON=Math.max(14,Math.min(28,maxCW));
+        const COL_C=15, COL_DT=24, COL_P=15, COL_DUR=8;
+        const LIST_W=COL_NO+COL_NM+COL_CON+COL_C+COL_DT+COL_P+COL_DUR;
+        const GANTT_W=CW-LIST_W;
+        const DW=GANTT_W/totalSteps;
+
+        let y=M;
+        doc.setFillColor(15,23,42); doc.rect(M,y,CW,8,'F');
+        doc.setTextColor(255,255,255); doc.setFontSize(11);
+        doc.text('🏭 設備進廠與施作時程規畫表',M+3,y+5.5);
+        doc.setFontSize(7); doc.setTextColor(180,180,180);
+        doc.text(new Date().toLocaleDateString('zh-TW'),M+CW-2,y+5.5,{align:'right'});
+        y+=10;
+
+        const taskLines=tasks.map(t=>doc.splitTextToSize(t.name,COL_NM-7));
+        const conLines =tasks.map(t=>doc.splitTextToSize(t.contractor||'',COL_CON-4));
+        const totalLines=tasks.reduce((s,t,i)=>s+Math.max(taskLines[i].length,conLines[i].length,1),0);
+        const HDR_H=12;
+        const baseH=Math.max(5,Math.min(10,(PH-y-M-HDR_H-4)/totalLines));
+
+        // 表頭
+        doc.setFillColor(241,245,249); doc.rect(M,y,CW,HDR_H,'F');
+        doc.setDrawColor(203,213,225); doc.rect(M,y,CW,HDR_H);
+        doc.setFontSize(7); doc.setTextColor(51,65,85);
+        let hx=M;
+        [[COL_NO,'#'],[COL_NM,'任務名稱'],[COL_CON,'廠商'],[COL_C,'簽約'],[COL_DT,'排程區間'],[COL_P,'驗收'],[COL_DUR,'天數']].forEach(([w,lbl])=>{
+            doc.text(lbl,hx+w/2,y+HDR_H/2+1,{align:'center'}); hx+=w;
+            doc.setDrawColor(203,213,225); doc.line(hx,y,hx,y+HDR_H);
+        });
+
+        const GX=M+LIST_W, MH=HDR_H/2;
+        const mGroups=[];let mc=null,tmp=new Date(minDate);
+        for(let i=0;i<totalSteps;i++){
+            const k=`${tmp.getFullYear()}-${tmp.getMonth()}`;
+            if(!mc||mc.key!==k){mc={key:k,year:tmp.getFullYear(),month:tmp.getMonth()+1,count:0};mGroups.push(mc);}
+            mc.count++; tmp=new Date(tmp.getTime()+stepDays*DAY_MS);
+        }
+        doc.setFontSize(6);
+        let mx2=GX;
+        mGroups.forEach(mg=>{
+            const mw=mg.count*DW;
+            doc.setFillColor(248,250,252); doc.rect(mx2,y,mw,MH,'F');
+            doc.setDrawColor(203,213,225); doc.rect(mx2,y,mw,MH);
+            doc.setTextColor(51,65,85);
+            doc.text(`${mg.year}/${String(mg.month).padStart(2,'0')}月`,mx2+mw/2,y+MH/2+1,{align:'center',maxWidth:mw-1});
+            mx2+=mw;
+        });
+        doc.setFontSize(5);
+        let dx2=GX; tmp=new Date(minDate);
+        for(let i=0;i<totalSteps;i++){
+            const isWE=(scaleUnit==='day')&&(tmp.getDay()===0||tmp.getDay()===6);
+            if(isWE){doc.setFillColor(241,245,249);doc.rect(dx2,y+MH,DW,MH,'F');}
+            doc.setDrawColor(226,232,240);doc.rect(dx2,y+MH,DW,MH);
+            doc.setTextColor(100,116,139);
+            const lbl=(scaleUnit==='week')?`${String(tmp.getMonth()+1).padStart(2,'0')}/${String(tmp.getDate()).padStart(2,'0')}`:String(tmp.getDate());
+            if(DW>doc.getTextWidth(lbl)+0.6||i===0||tmp.getDate()===1) doc.text(lbl,dx2+DW/2,y+MH+MH/2+1,{align:'center'});
+            dx2+=DW; tmp=new Date(tmp.getTime()+stepDays*DAY_MS);
+        }
+        y+=HDR_H;
+
+        let ry=y;
+        tasks.forEach((task,idx)=>{
+            const nl=Math.max(taskLines[idx].length,conLines[idx].length,1);
+            const RH=baseH*nl;
+            if(idx%2===1){doc.setFillColor(248,250,252);doc.rect(M,ry,CW,RH,'F');}
+            doc.setDrawColor(226,232,240);doc.line(M,ry+RH,M+CW,ry+RH);
+
+            const hexColor=hex(task.color);
+            const [cr,cg,cb]=hexToRgbArr(hexColor);
+            const s=new Date(task.start),e=new Date(task.end);
+            const off=(s-minDate)/DAY_MS;
+            const days=calcDays(task.start,task.end);
+            const bx=GX+(off/stepDays)*DW, bw=(days/stepDays)*DW;
+            const bh=RH*0.55, by=ry+(RH-bh)/2;
+            const midY=ry+RH/2;
+
+            // 格線
+            tmp=new Date(minDate);
+            for(let i=0;i<totalSteps;i++){
+                const isWE=(scaleUnit==='day')&&(tmp.getDay()===0||tmp.getDay()===6);
+                if(isWE){doc.setFillColor(241,245,249);doc.rect(GX+i*DW,ry,DW,RH,'F');}
+                doc.setDrawColor(241,245,249);doc.line(GX+i*DW,ry,GX+i*DW,ry+RH);
+                tmp=new Date(tmp.getTime()+stepDays*DAY_MS);
+            }
+
+            // 簽約節點
+            if(task.contractDate){
+                const cDate=new Date(task.contractDate);
+                const cx=GX+((cDate-minDate)/DAY_MS/stepDays)*DW;
+                if(cDate<s){
+                    doc.setDrawColor(cr,cg,cb);
+                    doc.setLineDashPattern([0.8,0.8],0);
+                    doc.line(cx,midY,bx,midY);
+                    doc.setLineDashPattern([],0);
+                }
+                doc.setFillColor(cr,cg,cb);doc.circle(cx,midY,0.8,'F');
+                // 標籤
+                doc.setFontSize(4.5);doc.setTextColor(cr,cg,cb);
+                doc.text(`簽約 ${task.contractDate.slice(5)}`,cx,midY-2.5,{align:'center'});
+            }
+
+            // 甘特條
+            doc.setFillColor(cr,cg,cb);
+            try{doc.roundedRect(bx,by,bw,bh,0.8,0.8,'F');}catch(_){doc.rect(bx,by,bw,bh,'F');}
+            if(bw>12){
+                doc.setFontSize(4.8);doc.setTextColor(255,255,255);
+                const bt=`${task.name}${task.contractor?` (${task.contractor})`:''}`;
+                doc.text(bt,bx+bw/2,by+bh/2+0.8,{align:'center',maxWidth:bw-2});
+            }
+
+            // 驗收節點
+            if(task.paymentDate){
+                const pDate=new Date(task.paymentDate);
+                const px=GX+((pDate-minDate)/DAY_MS/stepDays)*DW;
+                if(pDate>e){
+                    doc.setDrawColor(cr,cg,cb);
+                    doc.setLineDashPattern([0.8,0.8],0);
+                    doc.line(bx+bw,midY,px,midY);
+                    doc.setLineDashPattern([],0);
+                }
+                doc.setFillColor(cr,cg,cb);doc.circle(px,midY,0.8,'F');
+                doc.setFontSize(4.5);doc.setTextColor(cr,cg,cb);
+                doc.text(`驗收 ${task.paymentDate.slice(5)}`,px,midY+3.5,{align:'center'});
+            }
+
+            // 左側清單文字
+            let tx=M;
+            doc.setFontSize(6);doc.setTextColor(100,116,139);
+            doc.text(String(idx+1),tx+COL_NO/2,midY+0.8,{align:'center'}); tx+=COL_NO;
+            doc.setFillColor(cr,cg,cb);doc.circle(tx+1.5,midY,1,'F'); 
+            doc.setTextColor(15,23,42);
+            doc.text(taskLines[idx],tx+3.5,ry+(RH-taskLines[idx].length*(baseH*0.7))/2+baseH*0.5,{maxWidth:COL_NM-6}); tx+=COL_NM;
+            doc.setTextColor(71,85,105);
+            doc.text(conLines[idx],tx+2,ry+(RH-conLines[idx].length*(baseH*0.7))/2+baseH*0.5,{maxWidth:COL_CON-4}); tx+=COL_CON;
+            doc.setFontSize(5);
+            doc.text(task.contractDate?task.contractDate.slice(5):'',tx+COL_C/2,midY+0.8,{align:'center'}); tx+=COL_C;
+            doc.text(`${task.start.slice(5)}~${task.end.slice(5)}`,tx+COL_DT/2,midY+0.8,{align:'center',maxWidth:COL_DT-1}); tx+=COL_DT;
+            doc.text(task.paymentDate?task.paymentDate.slice(5):'',tx+COL_P/2,midY+0.8,{align:'center'}); tx+=COL_P;
+            doc.text(String(days)+'天',tx+COL_DUR/2,midY+0.8,{align:'center'});
+
+            // 欄位線
+            let lx=M;
+            [COL_NO,COL_NM,COL_CON,COL_C,COL_DT,COL_P,COL_DUR].forEach(w=>{
+                lx+=w; doc.setDrawColor(226,232,240); doc.line(lx,ry,lx,ry+RH);
+            });
+            doc.line(M+LIST_W,ry,M+LIST_W,ry+RH);
+
+            ry+=RH;
+        });
+
+        doc.setDrawColor(148,163,184);
+        doc.rect(M,M+10,CW,HDR_H+(ry-y));
+        doc.save(`工廠進度排程_${new Date().toISOString().split('T')[0]}.pdf`);
+        toast('PDF 匯出成功！','success');
+    } catch(err) {
+        console.error(err);
+        toast(`匯出失敗：${err.message}`,'error');
+    } finally {
+        btn.innerHTML='📄 匯出 PDF'; btn.disabled=false;
+    }
+}
+
+window.addTask=addTask; window.openDeleteModal=openDeleteModal; window.closeDeleteModal=closeDeleteModal;
+window.updateTaskField=updateTaskField; window.resetData=resetData; window.exportToPDF=exportToPDF;
+window.setScaleUnit=setScaleUnit; window.cycleColor=cycleColor;
+window.adjustFontSize=adjustFontSize; window.adjustBarHeight=adjustBarHeight;
+</script>
+</body>
+</html>
