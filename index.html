@@ -79,9 +79,11 @@
 <header class="mb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0">
     <div>
         <h1 class="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-            🏭 設備進廠與施作時程規畫表
+            🏭 工廠設備進廠與施作時程規畫表
         </h1>
-
+        <p class="text-slate-500 mt-0.5 text-xs">
+            拖曳 ☰ 排序 ｜ 點擊<span class="font-semibold">彩色圓點</span>循環換色（自動避開已用色）｜ 拖曳中間橫條調整高度
+        </p>
     </div>
     <div class="flex items-center gap-2 shrink-0 flex-wrap">
         <div id="sync-status" class="shrink-0">
@@ -124,13 +126,27 @@
                     <tr>
                         <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-10 text-center">排序</th>
                         <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-7 text-center">#</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 min-w-[130px]">任務名稱</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 min-w-[90px]">負責廠商</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">簽約/訂金日期</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">開始日期</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">結束日期</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28">驗收/尾款日期</th>
-                        <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-14 text-center">工期</th>
+                        <th onclick="sortTasks('name')" class="py-2.5 px-2 text-xs font-medium text-slate-500 min-w-[130px] cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            任務名稱 <span id="sort-ind-name" class="text-indigo-500"></span>
+                        </th>
+                        <th onclick="sortTasks('contractor')" class="py-2.5 px-2 text-xs font-medium text-slate-500 min-w-[90px] cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            負責廠商 <span id="sort-ind-contractor" class="text-indigo-500"></span>
+                        </th>
+                        <th onclick="sortTasks('contractDate')" class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28 cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            簽約/訂金日期 <span id="sort-ind-contractDate" class="text-indigo-500"></span>
+                        </th>
+                        <th onclick="sortTasks('start')" class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28 cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            開始日期 <span id="sort-ind-start" class="text-indigo-500"></span>
+                        </th>
+                        <th onclick="sortTasks('end')" class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28 cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            結束日期 <span id="sort-ind-end" class="text-indigo-500"></span>
+                        </th>
+                        <th onclick="sortTasks('paymentDate')" class="py-2.5 px-2 text-xs font-medium text-slate-500 w-28 cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            驗收/尾款日期 <span id="sort-ind-paymentDate" class="text-indigo-500"></span>
+                        </th>
+                        <th onclick="sortTasks('duration')" class="py-2.5 px-2 text-xs font-medium text-slate-500 w-14 text-center cursor-pointer hover:bg-slate-100 hover:text-indigo-600 transition-colors select-none" title="點擊排序">
+                            工期 <span id="sort-ind-duration" class="text-indigo-500"></span>
+                        </th>
                         <th class="py-2.5 px-2 text-xs font-medium text-slate-500 w-10 text-center">刪除</th>
                     </tr>
                 </thead>
@@ -149,7 +165,7 @@
     <section id="gantt-section"
         class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-[150px]">
         <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 shrink-0 flex justify-between items-center">
-            <h2 class="font-semibold text-slate-700 text-sm">📊 時程表</h2>
+            <h2 class="font-semibold text-slate-700 text-sm">📊 專案甘特圖 (Gantt Chart)</h2>
             <div class="flex items-center gap-3">
                 <!-- 圖例 -->
                 <div class="hidden md:flex items-center gap-3 text-xs text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
@@ -398,10 +414,10 @@ function updateStyleDisplays() {
 
 // ★★★ 管理者請在這裡填寫備份目標（不含 Token！）★★★
 const BACKUP_TARGET = {
-    owner:  'janco1999',          // GitHub 帳號或組織，例如 'sean-tw'
-    repo:   'factory-schedule',          // Repo 名稱，例如 'factory-schedule'
+    owner:  '',          // GitHub 帳號或組織，例如 'sean-tw'
+    repo:   '',          // Repo 名稱，例如 'factory-schedule'
     branch: 'main',
-    path:   'config',    // repo 內的備份資料夾
+    path:   'backup',    // repo 內的備份資料夾
 };
 
 const BACKUP_PREFIX = 'factory_backup_';
@@ -836,6 +852,54 @@ function updateTaskField(id,field,value) {
 }
 
 // ② 循環換色：只跳到未使用的顏色
+// ── 欄位排序：點一下升序，再點一下降序 ──
+const SORTABLE_FIELDS = ['name','contractor','contractDate','start','end','paymentDate','duration'];
+let sortState = { field: null, dir: 1 };   // dir: 1=升序, -1=降序
+
+function sortTasks(field) {
+    if (sortState.field === field) {
+        sortState.dir *= -1;            // 同欄位再點 → 反向
+    } else {
+        sortState.field = field;
+        sortState.dir = 1;              // 換欄位 → 從升序開始
+    }
+    const dir = sortState.dir;
+    const isEmpty = v => v === undefined || v === null || v === '';
+
+    tasks.sort((a, b) => {
+        let va, vb;
+        if (field === 'duration') {
+            va = calcDays(a.start, a.end);
+            vb = calcDays(b.start, b.end);
+        } else {
+            va = a[field];
+            vb = b[field];
+        }
+        // 空值永遠排最後（不論升降序）
+        if (isEmpty(va) && isEmpty(vb)) return 0;
+        if (isEmpty(va)) return 1;
+        if (isEmpty(vb)) return -1;
+        if (typeof va === 'number') return (va - vb) * dir;
+        // 字串：中文以筆劃、英文以 A-Z 排序；ISO 日期字串直接比較即正確
+        return String(va).localeCompare(String(vb), 'zh-Hant') * dir;
+    });
+
+    updateSortIndicators();
+    renderTable(); renderGantt(); saveData();
+}
+
+function updateSortIndicators() {
+    SORTABLE_FIELDS.forEach(f => {
+        const el = document.getElementById('sort-ind-' + f);
+        if (el) el.textContent = (sortState.field === f) ? (sortState.dir === 1 ? '▲' : '▼') : '';
+    });
+}
+
+function clearSortState() {
+    sortState = { field: null, dir: 1 };
+    updateSortIndicators();
+}
+
 function cycleColor(id) {
     const t=tasks.find(t=>t.id===id);
     if (!t) return;
@@ -913,6 +977,7 @@ function initDragAndDrop() {
                 if (evt.oldIndex===evt.newIndex) return;
                 const [item]=tasks.splice(evt.oldIndex,1);
                 tasks.splice(evt.newIndex,0,item);
+                clearSortState();   // 手動拖曳後清除排序箭頭（改為自訂順序）
                 renderTable(); renderGantt(); saveData();
             }
         });
@@ -1324,6 +1389,7 @@ window.addTask=addTask; window.openDeleteModal=openDeleteModal; window.closeDele
 window.updateTaskField=updateTaskField; window.resetData=resetData; window.exportToPDF=exportToPDF;
 window.setScaleUnit=setScaleUnit; window.cycleColor=cycleColor;
 window.adjustFontSize=adjustFontSize; window.adjustBarHeight=adjustBarHeight;
+window.sortTasks=sortTasks;
 window.backupNow=backupNow;
 window.exportBackupFile=exportBackupFile; window.importBackupFile=importBackupFile;
 window.openOwnerDialog=openOwnerDialog; window.closeOwnerDialog=closeOwnerDialog;
