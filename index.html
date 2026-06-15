@@ -823,14 +823,22 @@ function saveData() {
 }
 
 // ── 工具 ──────────────────────────────────────────────────
-function calcDays(s,e) { return s&&e ? Math.round((new Date(e)-new Date(s))/DAY_MS)+1 : 0; }
+function calcDays(s,e) {
+    if (!s || !e) return 0;
+    const d = Math.round((new Date(e) - new Date(s)) / DAY_MS) + 1;
+    return isFinite(d) ? d : 0;
+}
 
 function dateBounds() {
     let mn = Infinity, mx = -Infinity;
     tasks.forEach(t => {
-        [t.start,t.end,t.contractDate,t.paymentDate].forEach(d => {
+        const dates = [t.start, t.end, t.contractDate, t.paymentDate];
+        // 也納入付款排程的各期日期，確保時間軸涵蓋所有付款
+        if (Array.isArray(t.payments)) t.payments.forEach(p => dates.push(p.date));
+        dates.forEach(d => {
             if (!d) return;
             const v = new Date(d).getTime();
+            if (!isFinite(v)) return;   // 過濾無效日期
             if (v < mn) mn = v;
             if (v > mx) mx = v;
         });
@@ -1240,6 +1248,17 @@ async function exportToPDF() {
         const {jsPDF}=window.jspdf;
         const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
 
+        // 🛡️ 終極防護：包裝所有繪圖方法，任何 NaN/Infinity 參數自動轉為安全值，
+        //    確保即使有意料外的資料也絕不會讓整份 PDF 匯出失敗
+        ['rect','roundedRect','circle','line','text'].forEach(method=>{
+            const orig=doc[method].bind(doc);
+            doc[method]=function(...args){
+                const safe=args.map(a=>(typeof a==='number'&&!isFinite(a))?0:a);
+                try { return orig(...safe); }
+                catch(_){ return doc; }   // 個別繪圖失敗也不中斷整體流程
+            };
+        });
+
         // 嘗試載入中文字型
         let fontBuffer=null;
         for (const url of [
@@ -1260,16 +1279,21 @@ async function exportToPDF() {
 
         const PW=297,PH=210,M=10,CW=PW-M*2;
         const {min:rawMin,max:rawMax}=dateBounds();
-        const minDate=new Date(rawMin.getTime()-3*DAY_MS);
-        const maxDate=new Date(rawMax.getTime()+3*DAY_MS);
+        let minDate=new Date(rawMin.getTime()-3*DAY_MS);
+        let maxDate=new Date(rawMax.getTime()+3*DAY_MS);
+        // 防呆：日期邊界若無效，退回今天
+        if(!isFinite(minDate.getTime())) minDate=new Date();
+        if(!isFinite(maxDate.getTime())||maxDate<=minDate) maxDate=new Date(minDate.getTime()+30*DAY_MS);
         const stepDays=(scaleUnit==='week')?7:1;
-        const totalDays=Math.round((maxDate-minDate)/DAY_MS)+1;
-        const totalSteps=Math.ceil(totalDays/stepDays);
+        let totalDays=Math.round((maxDate-minDate)/DAY_MS)+1;
+        if(!isFinite(totalDays)||totalDays<1) totalDays=30;
+        let totalSteps=Math.ceil(totalDays/stepDays);
+        if(!isFinite(totalSteps)||totalSteps<1) totalSteps=Math.ceil(30/stepDays);
 
         doc.setFontSize(6.5);
         let maxNW=20,maxCW=14;
         tasks.forEach(t=>{
-            const nw=doc.getTextWidth(t.name)+6;if(nw>maxNW)maxNW=nw;
+            const nw=doc.getTextWidth(t.name||'')+6;if(nw>maxNW)maxNW=nw;
             const cw=doc.getTextWidth(t.contractor||'')+4;if(cw>maxCW)maxCW=cw;
         });
 
@@ -1277,7 +1301,10 @@ async function exportToPDF() {
         const COL_C=15, COL_DT=24, COL_P=15, COL_DUR=8;
         const LIST_W=COL_NO+COL_NM+COL_CON+COL_C+COL_DT+COL_P+COL_DUR;
         const GANTT_W=CW-LIST_W;
-        const DW=GANTT_W/totalSteps;
+        let DW=GANTT_W/totalSteps;
+        // 全面防呆：任何關鍵尺寸若為無效值，立即以安全值取代，避免 NaN 傳入 jsPDF
+        if(!isFinite(DW)||DW<=0) DW=Math.max(0.5, GANTT_W/Math.max(1,totalSteps||1));
+        if(!isFinite(DW)||DW<=0) DW=2;
 
         let y=M;
         doc.setFillColor(15,23,42); doc.rect(M,y,CW,8,'F');
@@ -1287,11 +1314,12 @@ async function exportToPDF() {
         doc.text(new Date().toLocaleDateString('zh-TW'),M+CW-2,y+5.5,{align:'right'});
         y+=10;
 
-        const taskLines=tasks.map(t=>doc.splitTextToSize(t.name,COL_NM-7));
-        const conLines =tasks.map(t=>doc.splitTextToSize(t.contractor||'',COL_CON-4));
+        const taskLines=tasks.map(t=>doc.splitTextToSize(t.name||'',Math.max(2,COL_NM-7)));
+        const conLines =tasks.map(t=>doc.splitTextToSize(t.contractor||'',Math.max(2,COL_CON-4)));
         const totalLines=tasks.reduce((s,t,i)=>s+Math.max(taskLines[i].length,conLines[i].length,1),0);
         const HDR_H=12;
-        const baseH=Math.max(5,Math.min(10,(PH-y-M-HDR_H-4)/totalLines));
+        let baseH=Math.max(5,Math.min(10,(PH-y-M-HDR_H-4)/Math.max(1,totalLines)));
+        if(!isFinite(baseH)||baseH<=0) baseH=6;
 
         // 表頭
         doc.setFillColor(241,245,249); doc.rect(M,y,CW,HDR_H,'F');
@@ -1342,12 +1370,21 @@ async function exportToPDF() {
 
             const hexColor=hex(task.color);
             const [cr,cg,cb]=hexToRgbArr(hexColor);
-            const s=new Date(task.start),e=new Date(task.end);
-            const off=(s-minDate)/DAY_MS;
-            const days=calcDays(task.start,task.end);
-            const bx=GX+(off/stepDays)*DW, bw=(days/stepDays)*DW;
-            const bh=RH*0.55, by=ry+(RH-bh)/2;
+
+            // 安全解析日期：缺漏或無效時不畫甘特條，避免 NaN 傳給 jsPDF
+            const sTime = task.start ? new Date(task.start).getTime() : NaN;
+            const eTime = task.end   ? new Date(task.end).getTime()   : NaN;
+            const hasValidBar = isFinite(sTime) && isFinite(eTime);
+            const s = new Date(sTime), e = new Date(eTime);
             const midY=ry+RH/2;
+
+            let bx, bw, by, bh;
+            if (hasValidBar) {
+                const off=(sTime-minDate)/DAY_MS;
+                const days=calcDays(task.start,task.end);
+                bx=GX+(off/stepDays)*DW; bw=(days/stepDays)*DW;
+                bh=RH*0.55; by=ry+(RH-bh)/2;
+            }
 
             // 格線
             tmp=new Date(minDate);
@@ -1358,36 +1395,37 @@ async function exportToPDF() {
                 tmp=new Date(tmp.getTime()+stepDays*DAY_MS);
             }
 
-            // 簽約節點
-            if(task.contractDate){
-                const cDate=new Date(task.contractDate);
-                const cx=GX+((cDate-minDate)/DAY_MS/stepDays)*DW;
-                if(cDate<s){
+            // 簽約節點（日期有效才畫）
+            const cTime = task.contractDate ? new Date(task.contractDate).getTime() : NaN;
+            if(isFinite(cTime)){
+                const cx=GX+((cTime-minDate)/DAY_MS/stepDays)*DW;
+                if(hasValidBar && cTime<sTime){
                     doc.setDrawColor(cr,cg,cb);
                     doc.setLineDashPattern([0.8,0.8],0);
                     doc.line(cx,midY,bx,midY);
                     doc.setLineDashPattern([],0);
                 }
                 doc.setFillColor(cr,cg,cb);doc.circle(cx,midY,0.8,'F');
-                // 標籤
                 doc.setFontSize(4.5);doc.setTextColor(cr,cg,cb);
                 doc.text(`簽約 ${task.contractDate.slice(5)}`,cx,midY-2.5,{align:'center'});
             }
 
-            // 甘特條
-            doc.setFillColor(cr,cg,cb);
-            try{doc.roundedRect(bx,by,bw,bh,0.8,0.8,'F');}catch(_){doc.rect(bx,by,bw,bh,'F');}
-            if(bw>12){
-                doc.setFontSize(4.8);doc.setTextColor(255,255,255);
-                const bt=`${task.name}${task.contractor?` (${task.contractor})`:''}`;
-                doc.text(bt,bx+bw/2,by+bh/2+0.8,{align:'center',maxWidth:bw-2});
+            // 甘特條（日期有效才畫）
+            if(hasValidBar){
+                doc.setFillColor(cr,cg,cb);
+                try{doc.roundedRect(bx,by,bw,bh,0.8,0.8,'F');}catch(_){doc.rect(bx,by,bw,bh,'F');}
+                if(bw>12){
+                    doc.setFontSize(4.8);doc.setTextColor(255,255,255);
+                    const bt=`${task.name}${task.contractor?` (${task.contractor})`:''}`;
+                    doc.text(bt,bx+bw/2,by+bh/2+0.8,{align:'center',maxWidth:bw-2});
+                }
             }
 
-            // 驗收節點
-            if(task.paymentDate){
-                const pDate=new Date(task.paymentDate);
-                const px=GX+((pDate-minDate)/DAY_MS/stepDays)*DW;
-                if(pDate>e){
+            // 驗收節點（日期有效才畫）
+            const pTime = task.paymentDate ? new Date(task.paymentDate).getTime() : NaN;
+            if(isFinite(pTime)){
+                const px=GX+((pTime-minDate)/DAY_MS/stepDays)*DW;
+                if(hasValidBar && pTime>eTime){
                     doc.setDrawColor(cr,cg,cb);
                     doc.setLineDashPattern([0.8,0.8],0);
                     doc.line(bx+bw,midY,px,midY);
@@ -1399,6 +1437,7 @@ async function exportToPDF() {
             }
 
             // 左側清單文字
+            const days=hasValidBar?calcDays(task.start,task.end):0;
             let tx=M;
             doc.setFontSize(6);doc.setTextColor(100,116,139);
             doc.text(String(idx+1),tx+COL_NO/2,midY+0.8,{align:'center'}); tx+=COL_NO;
@@ -1409,9 +1448,10 @@ async function exportToPDF() {
             doc.text(conLines[idx],tx+2,ry+(RH-conLines[idx].length*(baseH*0.7))/2+baseH*0.5,{maxWidth:COL_CON-4}); tx+=COL_CON;
             doc.setFontSize(5);
             doc.text(task.contractDate?task.contractDate.slice(5):'',tx+COL_C/2,midY+0.8,{align:'center'}); tx+=COL_C;
-            doc.text(`${task.start.slice(5)}~${task.end.slice(5)}`,tx+COL_DT/2,midY+0.8,{align:'center',maxWidth:COL_DT-1}); tx+=COL_DT;
+            const rangeTxt = hasValidBar ? `${task.start.slice(5)}~${task.end.slice(5)}` : (task.start? task.start.slice(5)+'~' : (task.end? '~'+task.end.slice(5) : '─'));
+            doc.text(rangeTxt,tx+COL_DT/2,midY+0.8,{align:'center',maxWidth:COL_DT-1}); tx+=COL_DT;
             doc.text(task.paymentDate?task.paymentDate.slice(5):'',tx+COL_P/2,midY+0.8,{align:'center'}); tx+=COL_P;
-            doc.text(String(days)+'天',tx+COL_DUR/2,midY+0.8,{align:'center'});
+            doc.text(hasValidBar?String(days)+'天':'─',tx+COL_DUR/2,midY+0.8,{align:'center'});
 
             // 欄位線
             let lx=M;
