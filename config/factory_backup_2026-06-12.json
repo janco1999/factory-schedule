@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-06-12T03:16:09.494Z",
+  "savedAt": "2026-06-11T07:25:03.645Z",
   "app": "工廠設備進廠與施作時程規畫表",
   "tasks": [
     {
@@ -83,16 +83,6 @@
       "color": "c-fuchsia"
     },
     {
-      "id": 17,
-      "name": "廢氣風管移動",
-      "start": "2026-06-11",
-      "end": "2027-01-15",
-      "contractor": "易度",
-      "contractDate": "",
-      "paymentDate": "",
-      "color": "c-lime"
-    },
-    {
       "id": 12,
       "name": "SEM顯微鏡",
       "start": "2026-08-03",
@@ -171,16 +161,6 @@
       "contractDate": "",
       "paymentDate": "",
       "color": "c-pink"
-    },
-    {
-      "id": 18,
-      "name": "新任務",
-      "start": "2027-01-08",
-      "end": "2027-01-15",
-      "contractor": "",
-      "contractDate": "",
-      "paymentDate": "",
-      "color": "c-yellow"
     }
   ],
   "ganttStyle": {
