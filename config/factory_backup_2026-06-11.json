@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-06-11T07:58:27.994Z",
+  "savedAt": "2026-06-11T07:25:03.645Z",
   "app": "工廠設備進廠與施作時程規畫表",
   "tasks": [
     {
@@ -161,16 +161,6 @@
       "contractDate": "",
       "paymentDate": "",
       "color": "c-pink"
-    },
-    {
-      "id": 17,
-      "name": "新任務",
-      "start": "2027-01-08",
-      "end": "2027-01-15",
-      "contractor": "",
-      "contractDate": "",
-      "paymentDate": "",
-      "color": "c-lime"
     }
   ],
   "ganttStyle": {
