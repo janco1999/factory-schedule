@@ -1622,9 +1622,9 @@ function drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage) {
     // 每列高度自動縮放，下限 8mm（容納明細），上限 12mm
     let rowH = Math.max(8, Math.min(12, availForRows / nRows));
 
-    // 欄寬：時間 / 當期 / 累計 / 期數 / 明細(佔最大)
-    const colMonth=30, colPay=34, colCum=34, colCnt=14;
-    const colDetail = CW - colMonth - colPay - colCum - colCnt;
+    // 欄寬：時間 / 當期應付 / (間隔) / 累計應付 / 項目 / 明細(佔最大)
+    const colMonth=28, colPay=36, gapPC=12, colCum=36, colCnt=14;
+    const colDetail = CW - colMonth - colPay - gapPC - colCum - colCnt;
 
     // 表頭
     const headH = 9;
@@ -1636,9 +1636,9 @@ function drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage) {
     doc.setTextColor(51,65,85);
     let cx=M;
     doc.text('時間', cx+3, y+6); cx+=colMonth;
-    doc.text('當期應付', cx+colPay-3, y+6, {align:'right'}); cx+=colPay;
+    doc.text('當期應付', cx+colPay-3, y+6, {align:'right'}); cx+=colPay+gapPC;
     doc.text('累計應付', cx+colCum-3, y+6, {align:'right'}); cx+=colCum;
-    doc.text('期數', cx+colCnt/2, y+6, {align:'center'}); cx+=colCnt;
+    doc.text('項目', cx+colCnt/2, y+6, {align:'center'}); cx+=colCnt;
     doc.text('明細（任務·名目 金額）', cx+3, y+6);
     y += headH;
 
@@ -1654,19 +1654,18 @@ function drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage) {
         doc.setFontSize(12);
         doc.setTextColor(30,41,59);
         doc.text(`${yr}/${mo}`, bx+3, midX); bx+=colMonth;
-        doc.text(fmtMoney(grp.amount), bx+colPay-3, midX, {align:'right'}); bx+=colPay;
+        doc.text(fmtMoney(grp.amount), bx+colPay-3, midX, {align:'right'}); bx+=colPay+gapPC;
         doc.setTextColor(120,130,145);
         doc.text(fmtMoney(cumulative), bx+colCum-3, midX, {align:'right'}); bx+=colCum;
         doc.setTextColor(100,116,139);
         doc.text(String(grp.count), bx+colCnt/2, midX, {align:'center'}); bx+=colCnt;
 
-        // 明細：用 8 號字，色點＋任務·名目 金額，依日期排序、以「、」分隔，必要時截斷
+        // 明細：用 8 號字，任務·名目 金額，以「 / 」分隔，依日期排序，必要時截斷
         doc.setFontSize(8);
         doc.setTextColor(71,85,105);
         const items = grp.items.slice().sort((a,b)=>a.date.localeCompare(b.date));
-        const detailStr = items.map(it=>`${it.name}·${it.label} ${fmtMoney(it.amt)}`).join('　');
+        const detailStr = items.map(it=>`${it.name}·${it.label} ${fmtMoney(it.amt)}`).join(' / ');
         const wrapped = doc.splitTextToSize(detailStr, colDetail-6);
-        // 明細最多顯示 2 行，超出加省略
         const maxLines = Math.max(1, Math.floor((rowH-2)/3.2));
         const shown = wrapped.slice(0, maxLines);
         if (wrapped.length > maxLines && shown.length) shown[shown.length-1] = shown[shown.length-1].replace(/.{2}$/, '…');
@@ -1674,7 +1673,7 @@ function drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage) {
         shown.forEach((ln,li)=> doc.text(ln, bx+3, startY + li*3.2));
 
         y += rowH;
-        if (y > bottomLimit - 9) break;   // 保留總計列空間
+        if (y > bottomLimit - 9) break;
     }
 
     // 總計列
@@ -1686,7 +1685,7 @@ function drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage) {
     doc.setFontSize(12);
     doc.text('總計', M+3, y+6);
     doc.text(fmtMoney(flowTotal), M+colMonth+colPay-3, y+6, {align:'right'});
-    doc.text(String(totalPeriods)+' 期', M+colMonth+colPay+colCum+colCnt/2, y+6, {align:'center'});
+    doc.text(String(totalPeriods)+' 項', M+colMonth+colPay+gapPC+colCum+colCnt/2, y+6, {align:'center'});
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1795,12 +1794,19 @@ function drawPaymentDetailPages(doc, M, PW, PH, CW) {
         doc.rect(M, y, CW, footH, 'F');
         doc.setDrawColor(203,213,225);
         doc.rect(M, y, CW, footH);
-        doc.setTextColor(51,65,85);
         doc.setFontSize(12);
         const pctOk=Math.abs(pctSum-100)<0.05;
+        // 「小計」標籤
+        doc.setTextColor(51,65,85);
         doc.text('小計', M+3, y+6);
+        // 佔比合計：對齊「佔比」欄位（右對齊於 pct 欄），數值在欄位正下方
         doc.setTextColor(pctOk?22:180, pctOk?163:83, pctOk?74:9);
-        doc.text(pctOk?`佔比合計 ${fmtPct(pctSum)} ✓`:`⚠ 佔比合計 ${fmtPct(pctSum)}（應為100%）`, M+cLabel, y+6);
+        doc.text(fmtPct(pctSum), M+cLabel+cDate+cPct-3, y+6, {align:'right'});
+        // 佔比是否達 100% 的提示，置於佔比欄左側的「付款日期」欄位區，避免擋住數字
+        doc.setFontSize(9);
+        doc.text(pctOk?'佔比合計 ✓':'⚠ 佔比合計（應為100%）', M+cLabel+3, y+6);
+        // 金額合計：對齊「金額」欄
+        doc.setFontSize(12);
         doc.setTextColor(30,41,59);
         doc.text(fmtMoney(paidSum), M+cLabel+cDate+cPct+cAmt-3, y+6, {align:'right'});
         y += footH + 6;
