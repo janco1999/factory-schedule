@@ -92,7 +92,7 @@
         <!-- 備份狀態指示燈（純顯示，無任何操作功能）-->
         <div id="backup-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0" title="備份：未啟用"></div>
         <input type="file" id="import-backup-input" accept=".json,.txt" class="hidden" onchange="importBackupFile(this)">
-        <button onclick="exportToPDF()" id="pdf-btn"
+        <button onclick="openExportDialog()" id="pdf-btn"
             class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-all flex items-center gap-2 active:scale-95">
             📄 匯出 PDF
         </button>
@@ -317,6 +317,35 @@
                 不會寫入 HTML 檔，因此 HTML 放上 Git 不會洩漏。其他人開啟此檔案時看不到任何備份設定入口，
                 沒有 Token 的電腦無法寫入或讀取你的備份。
             </p>
+        </div>
+    </div>
+</div>
+
+<!-- 📄 匯出範圍選擇對話框 -->
+<div id="export-dialog"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+    <div id="export-dialog-card"
+        class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden transform scale-95 transition-transform duration-200">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 class="text-base font-bold text-slate-800">📄 選擇匯出範圍</h3>
+            <button onclick="closeExportDialog()" class="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+        </div>
+        <div class="p-5 space-y-3">
+            <button onclick="exportToPDF('all')"
+                class="w-full text-left border border-slate-200 rounded-lg px-4 py-3 hover:border-indigo-400 hover:bg-indigo-50/40 transition-colors group">
+                <div class="font-semibold text-slate-800 group-hover:text-indigo-700">📦 全部分頁</div>
+                <div class="text-xs text-slate-500 mt-0.5">時程表與付款排程（總覽＋各任務明細）</div>
+            </button>
+            <button onclick="exportToPDF('schedule')"
+                class="w-full text-left border border-slate-200 rounded-lg px-4 py-3 hover:border-indigo-400 hover:bg-indigo-50/40 transition-colors group">
+                <div class="font-semibold text-slate-800 group-hover:text-indigo-700">📅 第一分頁：任務時程表</div>
+                
+            </button>
+            <button onclick="exportToPDF('payment')"
+                class="w-full text-left border border-slate-200 rounded-lg px-4 py-3 hover:border-indigo-400 hover:bg-indigo-50/40 transition-colors group">
+                <div class="font-semibold text-slate-800 group-hover:text-indigo-700">💰 第二分頁：付款排程</div>
+        
+            </button>
         </div>
     </div>
 </div>
@@ -1240,44 +1269,99 @@ function renderGantt() {
 // ═══════════════════════════════════════════════════════════
 // 📄 PDF 匯出
 // ═══════════════════════════════════════════════════════════
-async function exportToPDF() {
+// 開啟匯出範圍選擇對話框
+function openExportDialog() {
+    if (!tasks || !tasks.length) { toast('尚無任務資料','error'); return; }
+    const m = document.getElementById('export-dialog');
+    const card = document.getElementById('export-dialog-card');
+    m.classList.remove('hidden');
+    setTimeout(()=>{ m.classList.remove('opacity-0'); card.classList.remove('scale-95'); }, 10);
+}
+function closeExportDialog() {
+    const m = document.getElementById('export-dialog');
+    const card = document.getElementById('export-dialog-card');
+    m.classList.add('opacity-0'); card.classList.add('scale-95');
+    setTimeout(()=>m.classList.add('hidden'), 200);
+}
+
+// 載入中文字型（共用）
+async function loadPdfFont(doc) {
+    let fontBuffer=null;
+    for (const url of [
+        'https://cdn.jsdelivr.net/gh/justfont/open-huninn-font@master/font/jf-openhuninn-1.1.ttf',
+        'https://raw.githubusercontent.com/justfont/open-huninn-font/master/font/jf-openhuninn-1.1.ttf'
+    ]) {
+        try { const res=await fetch(url); if (res.ok){ fontBuffer=await res.arrayBuffer(); break; } } catch(_){}
+    }
+    if (!fontBuffer) throw new Error('字型下載失敗');
+    const fb64=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result.split(',')[1]); fr.readAsDataURL(new Blob([fontBuffer])); });
+    doc.addFileToVFS('huninn.ttf',fb64);
+    doc.addFont('huninn.ttf','huninn','normal');
+    doc.setFont('huninn','normal');
+}
+
+// 包裝繪圖方法防呆（共用）
+function guardDoc(doc) {
+    ['rect','roundedRect','circle','line','text'].forEach(method=>{
+        const orig=doc[method].bind(doc);
+        doc[method]=function(...args){
+            const safe=args.map(a=>(typeof a==='number'&&!isFinite(a))?0:a);
+            try { return orig(...safe); } catch(_){ return doc; }
+        };
+    });
+}
+
+// ── 主匯出函式：scope = 'all' | 'schedule' | 'payment' ──
+async function exportToPDF(scope) {
+    closeExportDialog();
     const btn=document.getElementById('pdf-btn');
+    const orig = btn.innerHTML;
     btn.innerHTML='⏳ 載入字型...'; btn.disabled=true;
     try {
         if (!tasks||!tasks.length) { toast('尚無任務資料','error'); return; }
         const {jsPDF}=window.jspdf;
         const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-
-        // 🛡️ 終極防護：包裝所有繪圖方法，任何 NaN/Infinity 參數自動轉為安全值，
-        //    確保即使有意料外的資料也絕不會讓整份 PDF 匯出失敗
-        ['rect','roundedRect','circle','line','text'].forEach(method=>{
-            const orig=doc[method].bind(doc);
-            doc[method]=function(...args){
-                const safe=args.map(a=>(typeof a==='number'&&!isFinite(a))?0:a);
-                try { return orig(...safe); }
-                catch(_){ return doc; }   // 個別繪圖失敗也不中斷整體流程
-            };
-        });
-
-        // 嘗試載入中文字型
-        let fontBuffer=null;
-        for (const url of [
-            'https://cdn.jsdelivr.net/gh/justfont/open-huninn-font@master/font/jf-openhuninn-1.1.ttf',
-            'https://raw.githubusercontent.com/justfont/open-huninn-font/master/font/jf-openhuninn-1.1.ttf'
-        ]) {
-            try {
-                const res=await fetch(url);
-                if (res.ok){ fontBuffer=await res.arrayBuffer(); break; }
-            } catch(_){}
-        }
-        if (!fontBuffer) throw new Error('字型下載失敗');
-        const fb64=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result.split(',')[1]); fr.readAsDataURL(new Blob([fontBuffer])); });
-        doc.addFileToVFS('huninn.ttf',fb64);
-        doc.addFont('huninn.ttf','huninn','normal');
-        doc.setFont('huninn','normal');
+        guardDoc(doc);
+        await loadPdfFont(doc);
         btn.innerHTML='⏳ 排版繪製...';
 
         const PW=297,PH=210,M=10,CW=PW-M*2;
+        let firstPage = true;
+
+        if (scope === 'schedule' || scope === 'all') {
+            const overflow = drawSchedulePage(doc, M, PW, PH, CW, firstPage);
+            firstPage = false;
+            if (overflow.overflowX || overflow.overflowY) {
+                const parts = [];
+                if (overflow.overflowX) parts.push('時間軸過寬');
+                if (overflow.overflowY) parts.push(`任務數過多（${tasks.length} 項）`);
+                toast(`⚠ 時程表內容超出單頁 A4（${parts.join('、')}），已自動縮放塞入單頁，部分文字可能偏小`, 'error');
+            }
+        }
+
+        if (scope === 'payment' || scope === 'all') {
+            drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage);
+            firstPage = false;
+            drawPaymentDetailPages(doc, M, PW, PH, CW);
+        }
+
+        const tag = scope==='schedule' ? '時程表' : scope==='payment' ? '付款排程' : '完整';
+        doc.save(`工廠進度排程_${tag}_${new Date().toISOString().split('T')[0]}.pdf`);
+        toast('PDF 匯出成功！','success');
+    } catch(err) {
+        console.error(err);
+        toast(`匯出失敗：${err.message}`,'error');
+    } finally {
+        btn.innerHTML=orig; btn.disabled=false;
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+// 📄 時程表頁（單頁 A4，超出會回報 overflow 旗標）
+// ══════════════════════════════════════════════════════════
+function drawSchedulePage(doc, M, PW, PH, CW, firstPage) {
+    if (!firstPage) doc.addPage('a4','landscape');
+
         const {min:rawMin,max:rawMax}=dateBounds();
         let minDate=new Date(rawMin.getTime()-3*DAY_MS);
         let maxDate=new Date(rawMax.getTime()+3*DAY_MS);
@@ -1318,8 +1402,16 @@ async function exportToPDF() {
         const conLines =tasks.map(t=>doc.splitTextToSize(t.contractor||'',Math.max(2,COL_CON-4)));
         const totalLines=tasks.reduce((s,t,i)=>s+Math.max(taskLines[i].length,conLines[i].length,1),0);
         const HDR_H=12;
-        let baseH=Math.max(5,Math.min(10,(PH-y-M-HDR_H-4)/Math.max(1,totalLines)));
+        const idealRowH = 8;   // 舒適行高
+        const availH = PH - y - M - HDR_H - 4;
+        let baseH=Math.max(5,Math.min(10,availH/Math.max(1,totalLines)));
         if(!isFinite(baseH)||baseH<=0) baseH=6;
+
+        // ── 溢出偵測 ──
+        // 縱向：若理想行高放不下所有任務（被迫壓縮到 < 6mm）
+        const overflowY = (availH / Math.max(1,totalLines)) < 6;
+        // 橫向：若每格寬度被壓到很窄（甘特時間軸過寬，每週 < 3mm 代表很擠）
+        const overflowX = (scaleUnit==='week' ? DW < 3 : DW < 1.2);
 
         // 表頭
         doc.setFillColor(241,245,249); doc.rect(M,y,CW,HDR_H,'F');
@@ -1465,20 +1557,265 @@ async function exportToPDF() {
 
         doc.setDrawColor(148,163,184);
         doc.rect(M,M+10,CW,HDR_H+(ry-y));
-        doc.save(`工廠進度排程_${new Date().toISOString().split('T')[0]}.pdf`);
-        toast('PDF 匯出成功！','success');
-    } catch(err) {
-        console.error(err);
-        toast(`匯出失敗：${err.message}`,'error');
-    } finally {
-        btn.innerHTML='📄 匯出 PDF'; btn.disabled=false;
+
+    return { overflowX, overflowY };
+}
+
+// ── PDF 共用：頁首橫幅 ──
+function pdfPageHeader(doc, M, CW, title, subtitle) {
+    doc.setFillColor(15,23,42);
+    doc.rect(M, M, CW, 10, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(15);
+    doc.text(title, M+4, M+7);
+    if (subtitle) {
+        doc.setFontSize(12);
+        doc.setTextColor(190,195,205);
+        doc.text(subtitle, M+CW-3, M+7, {align:'right'});
+    }
+    return M + 10 + 6;   // 內容起始 y
+}
+
+// ══════════════════════════════════════════════════════════
+// 📄 付款排程第一頁：總價加總 + 現金流彙整（依月），單頁 A4
+// ══════════════════════════════════════════════════════════
+function drawPaymentSummaryPage(doc, M, PW, PH, CW, firstPage) {
+    if (!firstPage) doc.addPage('a4','landscape');
+    let y = pdfPageHeader(doc, M, CW, '付款總覽與現金流彙整', new Date().toLocaleDateString('zh-TW'));
+    y += 2;
+
+    const grandTotal = tasks.reduce((s,t)=>s+(Number(t.totalPrice)||0), 0);
+    const totalPeriods = tasks.reduce((s,t)=>s+((t.payments&&t.payments.length)||0), 0);
+
+    // ── 全部任務總價加總（橫幅）──
+    const bannerH = 24;
+    doc.setFillColor(79,70,229);
+    doc.roundedRect(M, y, CW, bannerH, 2.5, 2.5, 'F');
+    doc.setTextColor(199,210,254);
+    doc.setFontSize(13);
+    doc.text('全部任務總價加總', M+7, y+9);
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(24);
+    doc.text(fmtMoney(grandTotal), M+7, y+19);
+    doc.setFontSize(13);
+    doc.setTextColor(199,210,254);
+    doc.text(`共 ${tasks.length} 項任務`, M+CW-7, y+10, {align:'right'});
+    doc.text(`累計付款 ${totalPeriods} 期`, M+CW-7, y+18, {align:'right'});
+    y += bannerH + 9;
+
+    // ── 現金流彙整（依月）──
+    const flowMap = {};
+    tasks.forEach(task=>{
+        (task.payments||[]).forEach(p=>{
+            if (!p.date) return;
+            const t = new Date(p.date).getTime();
+            if (!isFinite(t)) return;
+            const key = p.date.slice(0,7);
+            if (!flowMap[key]) flowMap[key] = { amount:0, count:0 };
+            flowMap[key].amount += paymentAmount(task, p);
+            flowMap[key].count++;
+        });
+    });
+    const keys = Object.keys(flowMap).sort();
+    const flowTotal = keys.reduce((s,k)=>s+flowMap[k].amount, 0);
+
+    doc.setTextColor(51,65,85);
+    doc.setFontSize(14);
+    doc.text('現金流彙整（依月）', M, y+5);
+    doc.setFontSize(12);
+    doc.setTextColor(100,116,139);
+    doc.text(`合計應付 ${fmtMoney(flowTotal)}`, M+CW, y+5, {align:'right'});
+    y += 10;
+
+    // 表頭
+    const colMonth=42, rest=CW-42;
+    const colPay=rest*0.26, colCum=rest*0.26, colCnt=rest*0.14, colBar=rest*0.34;
+    const rowH=10;
+    doc.setFillColor(241,245,249);
+    doc.rect(M, y, CW, rowH, 'F');
+    doc.setDrawColor(203,213,225);
+    doc.rect(M, y, CW, rowH);
+    doc.setFontSize(12);
+    doc.setTextColor(51,65,85);
+    let cx=M;
+    doc.text('時間', cx+3, y+6.5); cx+=colMonth;
+    doc.text('當期應付', cx+colPay-3, y+6.5, {align:'right'}); cx+=colPay;
+    doc.text('累計應付', cx+colCum-3, y+6.5, {align:'right'}); cx+=colCum;
+    doc.text('期數', cx+colCnt/2, y+6.5, {align:'center'}); cx+=colCnt;
+    doc.text('當期佔比', cx+3, y+6.5);
+    y += rowH;
+
+    const maxAmount = Math.max(1, ...keys.map(k=>flowMap[k].amount));
+    let cumulative=0;
+    doc.setFontSize(12);
+    const bottomLimit = PH - M - rowH - 2;
+    let truncated=false;
+    for (let i=0;i<keys.length;i++) {
+        if (y > bottomLimit) { truncated=true; break; }
+        const key=keys[i], grp=flowMap[key];
+        cumulative += grp.amount;
+        if (i%2===1) { doc.setFillColor(248,250,252); doc.rect(M,y,CW,rowH,'F'); }
+        doc.setDrawColor(226,232,240); doc.line(M,y+rowH,M+CW,y+rowH);
+        const [yr,mo]=key.split('-');
+        let bx=M;
+        doc.setTextColor(30,41,59);
+        doc.text(`${yr}年${mo}月`, bx+3, y+6.5); bx+=colMonth;
+        doc.text(fmtMoney(grp.amount), bx+colPay-3, y+6.5, {align:'right'}); bx+=colPay;
+        doc.setTextColor(120,130,145);
+        doc.text(fmtMoney(cumulative), bx+colCum-3, y+6.5, {align:'right'}); bx+=colCum;
+        doc.setTextColor(100,116,139);
+        doc.text(String(grp.count), bx+colCnt/2, y+6.5, {align:'center'}); bx+=colCnt;
+        const barMaxW=colBar-6;
+        const barW=Math.max(0.5,(grp.amount/maxAmount)*barMaxW);
+        doc.setFillColor(99,102,241);
+        doc.roundedRect(bx+3, y+2.8, barW, rowH-5.6, 0.8, 0.8, 'F');
+        y += rowH;
+    }
+
+    if (!truncated && y <= bottomLimit) {
+        doc.setFillColor(238,242,255);
+        doc.rect(M, y, CW, rowH, 'F');
+        doc.setDrawColor(165,180,252);
+        doc.rect(M, y, CW, rowH);
+        doc.setTextColor(67,56,202);
+        doc.setFontSize(12);
+        doc.text('總計', M+3, y+6.5);
+        doc.text(fmtMoney(flowTotal), M+colMonth+colPay-3, y+6.5, {align:'right'});
+        doc.text(String(totalPeriods)+' 期', M+colMonth+colPay+colCum+colCnt/2, y+6.5, {align:'center'});
+    } else if (truncated) {
+        doc.setTextColor(180,83,9);
+        doc.setFontSize(12);
+        doc.text('（月份較多，完整明細請見後續各任務付款明細頁）', M, y+6);
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 💰 付款排程分頁
-// ═══════════════════════════════════════════════════════════
-let currentTab = 'schedule';
+// ══════════════════════════════════════════════════════════
+// 📄 付款明細頁（各任務一張卡片，自動分頁，同一任務不跨頁切分）
+// ══════════════════════════════════════════════════════════
+function drawPaymentDetailPages(doc, M, PW, PH, CW) {
+    doc.addPage('a4','landscape');
+    let y = pdfPageHeader(doc, M, CW, '各任務付款明細', `${tasks.length} 項任務`);
+    y += 2;
+
+    const grandTotal = tasks.reduce((s,t)=>s+(Number(t.totalPrice)||0), 0);
+    const topY = M + 10 + 6 + 2;   // 換頁後內容起始 y
+    const bottomLimit = PH - M - 2;
+
+    const cLabel=CW*0.30, cDate=CW*0.16, cPct=CW*0.14, cAmt=CW*0.20, cCum=CW*0.20;
+    const titleH=12, headH=9, payRowH=9, footH=9;
+
+    function newPage() {
+        doc.addPage('a4','landscape');
+        y = pdfPageHeader(doc, M, CW, '各任務付款明細（續）', '');
+        y += 2;
+    }
+
+    tasks.forEach((task, ti) => {
+        const hexColor=hex(task.color);
+        const [r,g,b]=hexToRgbArr(hexColor);
+        const payments=Array.isArray(task.payments)?task.payments:[];
+        const pctSum=taskPctSum(task);
+        const paidSum=taskPaidSum(task);
+
+        // 整張卡片需要的總高度（同一任務不跨頁切分）
+        const rowsCount = Math.max(1, payments.length);
+        const cardH = titleH + headH + rowsCount*payRowH + footH;
+
+        // 若整張卡片放不下且不是頁面開頭 → 換頁。
+        // 若卡片高度超過整頁可用空間（付款期極多），仍從新頁開始畫，讓它盡量完整。
+        const pageAvail = bottomLimit - topY;
+        if (y + cardH > bottomLimit && y > topY) {
+            newPage();
+        }
+
+        // 卡片標題列
+        doc.setFillColor(r,g,b);
+        doc.rect(M, y, 3, titleH, 'F');
+        doc.setFillColor(248,250,252);
+        doc.rect(M+3, y, CW-3, titleH, 'F');
+        doc.setDrawColor(226,232,240);
+        doc.rect(M, y, CW, titleH);
+        doc.setTextColor(30,41,59);
+        doc.setFontSize(13);
+        const titleTxt = `${ti+1}. ${task.name||'(未命名)'}${task.contractor?`　／　${task.contractor}`:''}`;
+        doc.text(titleTxt, M+7, y+8, {maxWidth: CW*0.6});
+        doc.setTextColor(71,85,105);
+        doc.setFontSize(12);
+        doc.text(`總價　${fmtMoney(task.totalPrice||0)}`, M+CW-4, y+8, {align:'right'});
+        y += titleH;
+
+        // 明細表頭
+        doc.setFillColor(241,245,249);
+        doc.rect(M, y, CW, headH, 'F');
+        doc.setDrawColor(203,213,225);
+        doc.rect(M, y, CW, headH);
+        doc.setTextColor(71,85,105);
+        doc.setFontSize(12);
+        let hx=M;
+        doc.text('付款名目', hx+3, y+6); hx+=cLabel;
+        doc.text('付款日期', hx+cDate/2, y+6, {align:'center'}); hx+=cDate;
+        doc.text('佔比', hx+cPct-3, y+6, {align:'right'}); hx+=cPct;
+        doc.text('金額', hx+cAmt-3, y+6, {align:'right'}); hx+=cAmt;
+        doc.text('累計金額', hx+cCum-3, y+6, {align:'right'});
+        y += headH;
+
+        // 明細列
+        doc.setFontSize(12);
+        let cumAmt=0;
+        if (payments.length === 0) {
+            doc.setTextColor(150,160,175);
+            doc.text('（尚未設定付款期）', M+3, y+6);
+            doc.setDrawColor(238,242,246); doc.line(M,y+payRowH,M+CW,y+payRowH);
+            y += payRowH;
+        } else {
+            payments.forEach((p, pi) => {
+                // 卡片極大、超過整頁時的保險：列若超出頁尾就換頁續畫（僅在付款期數爆量時觸發）
+                if (y + payRowH > bottomLimit) { newPage(); }
+                const amt=paymentAmount(task, p);
+                cumAmt += amt;
+                if (pi%2===1) { doc.setFillColor(250,250,252); doc.rect(M,y,CW,payRowH,'F'); }
+                doc.setDrawColor(238,242,246); doc.line(M,y+payRowH,M+CW,y+payRowH);
+                let bx=M;
+                doc.setTextColor(30,41,59);
+                doc.text(p.label||'付款', bx+3, y+6, {maxWidth:cLabel-5}); bx+=cLabel;
+                doc.setTextColor(71,85,105);
+                doc.text(p.date||'─', bx+cDate/2, y+6, {align:'center'}); bx+=cDate;
+                doc.text(fmtPct(p.pct), bx+cPct-3, y+6, {align:'right'}); bx+=cPct;
+                doc.setTextColor(30,41,59);
+                doc.text(fmtMoney(amt), bx+cAmt-3, y+6, {align:'right'}); bx+=cAmt;
+                doc.setTextColor(140,150,165);
+                doc.text(fmtMoney(cumAmt), bx+cCum-3, y+6, {align:'right'});
+                y += payRowH;
+            });
+        }
+
+        // 卡片合計列
+        if (y + footH > bottomLimit) { newPage(); }
+        doc.setFillColor(Math.round(r+(255-r)*0.85), Math.round(g+(255-g)*0.85), Math.round(b+(255-b)*0.85));
+        doc.rect(M, y, CW, footH, 'F');
+        doc.setDrawColor(203,213,225);
+        doc.rect(M, y, CW, footH);
+        doc.setTextColor(51,65,85);
+        doc.setFontSize(12);
+        const pctOk=Math.abs(pctSum-100)<0.05;
+        doc.text('小計', M+3, y+6);
+        doc.setTextColor(pctOk?22:180, pctOk?163:83, pctOk?74:9);
+        doc.text(pctOk?`佔比合計 ${fmtPct(pctSum)} ✓`:`⚠ 佔比合計 ${fmtPct(pctSum)}（應為100%）`, M+cLabel, y+6);
+        doc.setTextColor(30,41,59);
+        doc.text(fmtMoney(paidSum), M+cLabel+cDate+cPct+cAmt-3, y+6, {align:'right'});
+        y += footH + 6;
+    });
+
+    // 末尾總計橫幅
+    if (y + 13 > bottomLimit) { newPage(); }
+    doc.setFillColor(79,70,229);
+    doc.roundedRect(M, y, CW, 12, 1.5, 1.5, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(14);
+    doc.text('全部任務總價加總', M+5, y+8);
+    doc.text(fmtMoney(grandTotal), M+CW-5, y+8, {align:'right'});
+}
+
 
 function switchTab(tab) {
     currentTab = tab;
@@ -1729,6 +2066,7 @@ function renderPaymentTab() {
 
 window.addTask=addTask; window.openDeleteModal=openDeleteModal; window.closeDeleteModal=closeDeleteModal;
 window.updateTaskField=updateTaskField; window.resetData=resetData; window.exportToPDF=exportToPDF;
+window.openExportDialog=openExportDialog; window.closeExportDialog=closeExportDialog;
 window.setScaleUnit=setScaleUnit; window.cycleColor=cycleColor;
 window.adjustFontSize=adjustFontSize; window.adjustBarHeight=adjustBarHeight;
 window.sortTasks=sortTasks;
