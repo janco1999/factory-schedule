@@ -81,6 +81,9 @@
         <h1 class="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
             🏭 工廠設備進廠與施作時程規畫表
         </h1>
+        <p class="text-slate-500 mt-0.5 text-xs">
+            拖曳 ☰ 排序 ｜ 點擊<span class="font-semibold">彩色圓點</span>循環換色（自動避開已用色）｜ 拖曳中間橫條調整高度
+        </p>
     </div>
     <div class="flex items-center gap-2 shrink-0 flex-wrap">
         <div id="sync-status" class="shrink-0">
@@ -99,6 +102,21 @@
 </header>
 
 <main class="flex-1 flex flex-col overflow-hidden" id="main-layout">
+
+    <!-- ── 分頁切換列 ── -->
+    <div class="flex items-center gap-1 mb-3 shrink-0 border-b border-slate-200">
+        <button onclick="switchTab('schedule')" id="tab-btn-schedule"
+            class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors border-indigo-500 text-indigo-600">
+            📅 時程規劃
+        </button>
+        <button onclick="switchTab('payment')" id="tab-btn-payment"
+            class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors border-transparent text-slate-500 hover:text-slate-700">
+            💰 付款排程
+        </button>
+    </div>
+
+    <!-- ══════════ 分頁一：時程規劃 ══════════ -->
+    <div id="tab-schedule" class="flex-1 flex flex-col overflow-hidden">
 
     <!-- ── 上半：任務表格 ── -->
     <section id="table-section"
@@ -162,7 +180,7 @@
     <section id="gantt-section"
         class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-[150px]">
         <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 shrink-0 flex justify-between items-center">
-            <h2 class="font-semibold text-slate-700 text-sm">📊 時程表</h2>
+            <h2 class="font-semibold text-slate-700 text-sm">📊 專案甘特圖 (Gantt Chart)</h2>
             <div class="flex items-center gap-3">
                 <!-- 圖例 -->
                 <div class="hidden md:flex items-center gap-3 text-xs text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
@@ -204,6 +222,31 @@
             <!-- JS 動態注入 sticky header + bars -->
         </div>
     </section>
+    </div><!-- /tab-schedule -->
+
+    <!-- ══════════ 分頁二：付款排程 ══════════ -->
+    <div id="tab-payment" class="flex-1 overflow-auto hidden">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+                <h2 class="font-semibold text-slate-700">💰 付款排程明細</h2>
+                <span class="text-xs text-slate-400">點數字可編輯；總價與各期金額／百分比互相連動</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="text-xs text-slate-500 flex items-center gap-1">
+                    幣別
+                    <input id="currency-symbol" type="text" value="NT$" maxlength="4"
+                        onchange="updateCurrency(this.value)"
+                        class="w-14 border border-slate-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:border-indigo-500">
+                </label>
+                <select id="cashflow-group" onchange="renderPaymentTab()"
+                    class="text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500">
+                    <option value="month">現金流：依月彙整</option>
+                    <option value="date">現金流：依日期彙整</option>
+                </select>
+            </div>
+        </div>
+        <div id="payment-content"><!-- JS 動態生成 --></div>
+    </div>
 </main>
 
 <!-- 刪除對話框 -->
@@ -348,16 +391,16 @@ function nextUnusedColor(currentColor = null, excludeId = null) {
 // 資料
 // ═══════════════════════════════════════════════════════════
 const defaultTasks = [
-    { id:1,  name:'舊產線拆除整地',  start:'2026-07-01', end:'2026-07-10', color:'c-red',      contractor:'齊力拆除',    contractDate:'2026-06-15', paymentDate:'2026-07-15' },
-    { id:2,  name:'隔間拆除/整地',   start:'2026-07-05', end:'2026-07-15', color:'c-orange',   contractor:'齊力拆除',    contractDate:'2026-06-15', paymentDate:'2026-07-20' },
-    { id:3,  name:'水電工程',         start:'2026-07-16', end:'2026-08-20', color:'c-blue',     contractor:'宏達水電',    contractDate:'2026-07-05', paymentDate:'2026-08-25' },
-    { id:4,  name:'瓦斯管線',         start:'2026-07-20', end:'2026-08-10', color:'c-cyan',     contractor:'欣欣天然氣',  contractDate:'2026-07-10', paymentDate:'2026-08-15' },
-    { id:5,  name:'無障礙廁所設置',  start:'2026-08-01', end:'2026-08-15', color:'c-teal',     contractor:'大亞泥作',    contractDate:'2026-07-20', paymentDate:'2026-08-20' },
-    { id:6,  name:'設備搬運',         start:'2026-08-15', end:'2026-08-22', color:'c-amber',    contractor:'捷運起重',    contractDate:'2026-08-01', paymentDate:'2026-08-25' },
-    { id:7,  name:'鍋爐設備',         start:'2026-08-20', end:'2026-09-10', color:'c-indigo',   contractor:'鼎盛鍋爐',    contractDate:'2026-08-05', paymentDate:'2026-09-20' },
-    { id:8,  name:'環保設備',         start:'2026-08-25', end:'2026-09-15', color:'c-emerald',  contractor:'綠能環控',    contractDate:'2026-08-10', paymentDate:'2026-09-25' },
-    { id:9,  name:'新設陽極產線',    start:'2026-09-01', end:'2026-10-10', color:'c-purple',   contractor:'台灣陽極',    contractDate:'2026-08-15', paymentDate:'2026-10-25' },
-    { id:10, name:'工廠登記變更',    start:'2026-09-15', end:'2026-11-15', color:'c-slate',    contractor:'和安事務所',  contractDate:'2026-09-01', paymentDate:'2026-11-20' },
+    { id:1,  name:'舊產線拆除整地',  start:'2026-07-01', end:'2026-07-10', color:'c-red',      contractor:'齊力拆除',    contractDate:'2026-06-15', paymentDate:'2026-07-15', totalPrice:300000,  payments:[ {label:'簽約訂金', date:'2026-06-15', pct:30}, {label:'驗收尾款', date:'2026-07-15', pct:70} ] },
+    { id:2,  name:'隔間拆除/整地',   start:'2026-07-05', end:'2026-07-15', color:'c-orange',   contractor:'齊力拆除',    contractDate:'2026-06-15', paymentDate:'2026-07-20', totalPrice:250000,  payments:[ {label:'簽約訂金', date:'2026-06-15', pct:30}, {label:'驗收尾款', date:'2026-07-20', pct:70} ] },
+    { id:3,  name:'水電工程',         start:'2026-07-16', end:'2026-08-20', color:'c-blue',     contractor:'宏達水電',    contractDate:'2026-07-05', paymentDate:'2026-08-25', totalPrice:1200000, payments:[ {label:'簽約訂金', date:'2026-07-05', pct:30}, {label:'期中款', date:'2026-08-01', pct:40}, {label:'驗收尾款', date:'2026-08-25', pct:30} ] },
+    { id:4,  name:'瓦斯管線',         start:'2026-07-20', end:'2026-08-10', color:'c-cyan',     contractor:'欣欣天然氣',  contractDate:'2026-07-10', paymentDate:'2026-08-15', totalPrice:450000,  payments:[ {label:'簽約訂金', date:'2026-07-10', pct:30}, {label:'驗收尾款', date:'2026-08-15', pct:70} ] },
+    { id:5,  name:'無障礙廁所設置',  start:'2026-08-01', end:'2026-08-15', color:'c-teal',     contractor:'大亞泥作',    contractDate:'2026-07-20', paymentDate:'2026-08-20', totalPrice:180000,  payments:[ {label:'簽約訂金', date:'2026-07-20', pct:30}, {label:'驗收尾款', date:'2026-08-20', pct:70} ] },
+    { id:6,  name:'設備搬運',         start:'2026-08-15', end:'2026-08-22', color:'c-amber',    contractor:'捷運起重',    contractDate:'2026-08-01', paymentDate:'2026-08-25', totalPrice:350000,  payments:[ {label:'簽約訂金', date:'2026-08-01', pct:50}, {label:'驗收尾款', date:'2026-08-25', pct:50} ] },
+    { id:7,  name:'鍋爐設備',         start:'2026-08-20', end:'2026-09-10', color:'c-indigo',   contractor:'鼎盛鍋爐',    contractDate:'2026-08-05', paymentDate:'2026-09-20', totalPrice:2800000, payments:[ {label:'簽約訂金', date:'2026-08-05', pct:30}, {label:'到貨款', date:'2026-08-20', pct:40}, {label:'驗收尾款', date:'2026-09-20', pct:30} ] },
+    { id:8,  name:'環保設備',         start:'2026-08-25', end:'2026-09-15', color:'c-emerald',  contractor:'綠能環控',    contractDate:'2026-08-10', paymentDate:'2026-09-25', totalPrice:1500000, payments:[ {label:'簽約訂金', date:'2026-08-10', pct:30}, {label:'驗收尾款', date:'2026-09-25', pct:70} ] },
+    { id:9,  name:'新設陽極產線',    start:'2026-09-01', end:'2026-10-10', color:'c-purple',   contractor:'台灣陽極',    contractDate:'2026-08-15', paymentDate:'2026-10-25', totalPrice:5500000, payments:[ {label:'簽約訂金', date:'2026-08-15', pct:20}, {label:'期中款', date:'2026-09-15', pct:40}, {label:'到貨款', date:'2026-10-01', pct:20}, {label:'驗收尾款', date:'2026-10-25', pct:20} ] },
+    { id:10, name:'工廠登記變更',    start:'2026-09-15', end:'2026-11-15', color:'c-slate',    contractor:'和安事務所',  contractDate:'2026-09-01', paymentDate:'2026-11-20', totalPrice:120000,  payments:[ {label:'簽約訂金', date:'2026-09-01', pct:50}, {label:'完成尾款', date:'2026-11-20', pct:50} ] },
 ];
 
 let tasks = JSON.parse(JSON.stringify(defaultTasks));
@@ -367,6 +410,8 @@ const LS_DATA   = 'factory_schedule_data_v2';
 const LS_HEIGHT = 'factory_schedule_panel_height';
 const LS_GANTT_STYLE = 'factory_gantt_style';
 let scaleUnit = 'week';
+let currencySymbol = 'NT$';
+try { const c = localStorage.getItem('factory_currency'); if (c) currencySymbol = c; } catch(e){}
 
 // ── 甘特圖顯示設定（字體/Bar 大小，可調整並記憶）──
 let ganttStyle = { fontSize: 12, barHeight: 28 };
@@ -741,6 +786,14 @@ function loadData() {
             if (!t.contractor)   t.contractor = '';
             if (!t.contractDate) t.contractDate = '';
             if (!t.paymentDate)  t.paymentDate = '';
+            // 付款排程欄位：舊資料自動補上
+            if (typeof t.totalPrice !== 'number') t.totalPrice = 0;
+            if (!Array.isArray(t.payments)) {
+                // 由現有的簽約/驗收日期推導兩期付款
+                t.payments = [];
+                if (t.contractDate) t.payments.push({ label:'簽約訂金', date:t.contractDate, pct:30 });
+                if (t.paymentDate)  t.payments.push({ label:'驗收尾款', date:t.paymentDate, pct:70 });
+            }
             // 舊版 bg-xxx 格式自動轉換
             if (t.color && t.color.startsWith('bg-')) {
                 const oldToNew = { 'bg-red-400':'c-red','bg-orange-400':'c-orange','bg-blue-500':'c-blue','bg-cyan-500':'c-cyan','bg-teal-500':'c-teal','bg-amber-500':'c-amber','bg-indigo-500':'c-indigo','bg-emerald-500':'c-emerald','bg-purple-500':'c-purple','bg-slate-600':'c-slate','bg-pink-500':'c-pink','bg-lime-500':'c-lime','bg-fuchsia-500':'c-fuchsia' };
@@ -756,6 +809,8 @@ function loadData() {
     renderTable();
     updateStyleDisplays();
     setScaleUnit(scaleUnit);
+    const curEl = document.getElementById('currency-symbol');
+    if (curEl) curEl.value = currencySymbol;
 }
 
 function saveData() {
@@ -819,7 +874,7 @@ function addTask() {
     const s = last ? last.end : new Date().toISOString().split('T')[0];
     const e = new Date(new Date(s).getTime()+7*DAY_MS).toISOString().split('T')[0];
     const color = nextUnusedColor();
-    tasks.push({ id:newId, name:'新任務', start:s, end:e, contractor:'', contractDate:'', paymentDate:'', color });
+    tasks.push({ id:newId, name:'新任務', start:s, end:e, contractor:'', contractDate:'', paymentDate:'', color, totalPrice:0, payments:[] });
     renderTable(); renderGantt(); saveData();
     setTimeout(()=>{ const el=document.getElementById('task-table-body').parentElement; if(el) el.scrollTop=el.scrollHeight; },50);
 }
@@ -1382,6 +1437,258 @@ async function exportToPDF() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// 💰 付款排程分頁
+// ═══════════════════════════════════════════════════════════
+let currentTab = 'schedule';
+
+function switchTab(tab) {
+    currentTab = tab;
+    const sEl = document.getElementById('tab-schedule');
+    const pEl = document.getElementById('tab-payment');
+    const sBtn = document.getElementById('tab-btn-schedule');
+    const pBtn = document.getElementById('tab-btn-payment');
+    const active = 'px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors border-indigo-500 text-indigo-600';
+    const inactive = 'px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors border-transparent text-slate-500 hover:text-slate-700';
+    if (tab === 'payment') {
+        sEl.classList.add('hidden');
+        pEl.classList.remove('hidden');
+        sBtn.className = inactive; pBtn.className = active;
+        renderPaymentTab();
+    } else {
+        pEl.classList.add('hidden');
+        sEl.classList.remove('hidden');
+        pBtn.className = inactive; sBtn.className = active;
+        renderGantt();   // 切回時重繪甘特圖（sticky 尺寸需要重算）
+    }
+}
+
+function updateCurrency(v) {
+    currencySymbol = (v || '').trim() || 'NT$';
+    try { localStorage.setItem('factory_currency', currencySymbol); } catch(e){}
+    renderPaymentTab();
+}
+
+// 數字格式化（千分位）
+function fmtMoney(n) {
+    const v = Math.round(Number(n) || 0);
+    return currencySymbol + ' ' + v.toLocaleString('en-US');
+}
+function fmtPct(n) {
+    const v = Number(n) || 0;
+    return (Math.round(v * 10) / 10) + '%';
+}
+
+// 某任務各期金額 = 總價 × pct/100
+function paymentAmount(task, p) {
+    return (Number(task.totalPrice) || 0) * (Number(p.pct) || 0) / 100;
+}
+function taskPctSum(task) {
+    return (task.payments || []).reduce((s, p) => s + (Number(p.pct) || 0), 0);
+}
+function taskPaidSum(task) {
+    return (task.payments || []).reduce((s, p) => s + paymentAmount(task, p), 0);
+}
+
+// ── 編輯付款欄位 ──
+function updatePaymentField(taskId, idx, field, value) {
+    const t = tasks.find(t => t.id === taskId);
+    if (!t || !t.payments[idx]) return;
+    if (field === 'pct') {
+        t.payments[idx].pct = Math.max(0, Number(value) || 0);
+    } else if (field === 'amount') {
+        // 由金額反推百分比（需要總價）
+        const total = Number(t.totalPrice) || 0;
+        t.payments[idx].pct = total > 0 ? (Number(value) || 0) / total * 100 : 0;
+    } else {
+        t.payments[idx][field] = value;
+    }
+    renderPaymentTab(); renderGantt(); saveData();
+}
+
+// ── 編輯任務總價：金額連動，百分比不變 ──
+function updateTaskPrice(taskId, value) {
+    const t = tasks.find(t => t.id === taskId);
+    if (!t) return;
+    t.totalPrice = Math.max(0, Number(value) || 0);
+    renderPaymentTab(); saveData();
+}
+
+// ── 新增 / 刪除付款期 ──
+function addPayment(taskId) {
+    const t = tasks.find(t => t.id === taskId);
+    if (!t) return;
+    if (!Array.isArray(t.payments)) t.payments = [];
+    const remain = Math.max(0, 100 - taskPctSum(t));
+    t.payments.push({ label:'新付款期', date: t.end || '', pct: remain });
+    renderPaymentTab(); renderGantt(); saveData();
+}
+function removePayment(taskId, idx) {
+    const t = tasks.find(t => t.id === taskId);
+    if (!t || !t.payments) return;
+    t.payments.splice(idx, 1);
+    renderPaymentTab(); renderGantt(); saveData();
+}
+
+// ── 主渲染 ──
+function renderPaymentTab() {
+    const root = document.getElementById('payment-content');
+    if (!root) return;
+
+    const grandTotal = tasks.reduce((s, t) => s + (Number(t.totalPrice) || 0), 0);
+
+    // ===== 1. 各任務付款明細卡片 =====
+    let cardsHTML = '';
+    tasks.forEach(task => {
+        const hexColor = hex(task.color);
+        const pctSum = taskPctSum(task);
+        const paidSum = taskPaidSum(task);
+        const pctOk = Math.abs(pctSum - 100) < 0.05;
+        const pctWarn = !pctOk
+            ? `<span class="text-amber-600 font-medium">⚠ 百分比合計 ${fmtPct(pctSum)}（應為 100%）</span>`
+            : `<span class="text-green-600">✓ 100%</span>`;
+
+        let rowsHTML = '';
+        (task.payments || []).forEach((p, idx) => {
+            rowsHTML += `
+            <tr class="border-b border-slate-100 hover:bg-slate-50/60">
+                <td class="py-1.5 px-2">
+                    <input type="text" value="${(p.label||'').replace(/"/g,'&quot;')}" onchange="updatePaymentField(${task.id},${idx},'label',this.value)"
+                        class="border-transparent bg-transparent hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded px-2 py-0.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-indigo-500" placeholder="付款名目">
+                </td>
+                <td class="py-1.5 px-2">
+                    <input type="date" value="${p.date||''}" onchange="updatePaymentField(${task.id},${idx},'date',this.value)"
+                        class="border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-indigo-500 w-full">
+                </td>
+                <td class="py-1.5 px-2 text-right">
+                    <input type="number" min="0" step="0.1" value="${Math.round((Number(p.pct)||0)*10)/10}" onchange="updatePaymentField(${task.id},${idx},'pct',this.value)"
+                        class="border border-slate-300 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-indigo-500 w-16">
+                    <span class="text-slate-400 text-xs">%</span>
+                </td>
+                <td class="py-1.5 px-2 text-right">
+                    <input type="number" min="0" step="1" value="${Math.round(paymentAmount(task,p))}" onchange="updatePaymentField(${task.id},${idx},'amount',this.value)"
+                        class="border border-slate-300 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-indigo-500 w-28 font-mono">
+                </td>
+                <td class="py-1.5 px-2 text-center">
+                    <button onclick="removePayment(${task.id},${idx})" class="text-slate-300 hover:text-red-500 transition-colors text-sm" title="刪除此期">✕</button>
+                </td>
+            </tr>`;
+        });
+
+        cardsHTML += `
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-3">
+            <div class="px-4 py-2.5 flex items-center justify-between gap-3 border-b border-slate-100" style="border-left:4px solid ${hexColor};">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-3 h-3 rounded-full shrink-0" style="background:${hexColor};"></span>
+                    <span class="font-semibold text-slate-700 truncate">${task.name||'(未命名)'}</span>
+                    ${task.contractor ? `<span class="text-xs text-slate-400 truncate">／ ${task.contractor}</span>` : ''}
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <span class="text-xs text-slate-500">總價</span>
+                    <input type="number" min="0" step="1000" value="${Math.round(Number(task.totalPrice)||0)}" onchange="updateTaskPrice(${task.id},this.value)"
+                        class="border border-slate-300 rounded px-2 py-1 text-sm text-right font-mono font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 w-36">
+                </div>
+            </div>
+            <table class="w-full text-left">
+                <thead class="bg-slate-50 text-xs text-slate-500">
+                    <tr>
+                        <th class="py-2 px-2 font-medium">付款名目</th>
+                        <th class="py-2 px-2 font-medium w-36">付款日期</th>
+                        <th class="py-2 px-2 font-medium text-right w-24">佔比</th>
+                        <th class="py-2 px-2 font-medium text-right w-36">金額</th>
+                        <th class="py-2 px-2 font-medium text-center w-10"></th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHTML || `<tr><td colspan="5" class="py-3 px-3 text-sm text-slate-400 text-center">尚無付款期，點下方按鈕新增</td></tr>`}</tbody>
+                <tfoot>
+                    <tr class="bg-slate-50/70 border-t border-slate-200 font-medium text-sm">
+                        <td class="py-2 px-2 text-slate-500" colspan="2">
+                            <button onclick="addPayment(${task.id})" class="text-xs bg-white border border-slate-300 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 px-2.5 py-1 rounded transition-colors">➕ 新增付款期</button>
+                        </td>
+                        <td class="py-2 px-2 text-right text-xs">${pctWarn}</td>
+                        <td class="py-2 px-2 text-right font-mono text-slate-800">${fmtMoney(paidSum)}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>`;
+    });
+
+    // ===== 2. 全部任務總價加總 =====
+    const totalHTML = `
+        <div class="bg-indigo-600 text-white rounded-xl shadow-sm px-5 py-4 mb-5 flex items-center justify-between flex-wrap gap-2">
+            <div>
+                <div class="text-indigo-200 text-sm">全部任務總價加總</div>
+                <div class="text-2xl font-bold font-mono mt-0.5">${fmtMoney(grandTotal)}</div>
+            </div>
+            <div class="text-right text-sm text-indigo-100">
+                <div>共 ${tasks.length} 項任務</div>
+                <div>累計付款期數 ${tasks.reduce((s,t)=>s+(t.payments?t.payments.length:0),0)} 期</div>
+            </div>
+        </div>`;
+
+    // ===== 3. 現金流彙整（依日期/月份）=====
+    const groupBy = (document.getElementById('cashflow-group') || {}).value || 'month';
+    const flowMap = {};   // key → { amount, items:[{name,label,date,amt}] }
+    tasks.forEach(task => {
+        (task.payments || []).forEach(p => {
+            if (!p.date) return;
+            const key = groupBy === 'month' ? p.date.slice(0, 7) : p.date;
+            if (!flowMap[key]) flowMap[key] = { amount: 0, items: [] };
+            const amt = paymentAmount(task, p);
+            flowMap[key].amount += amt;
+            flowMap[key].items.push({ name: task.name, label: p.label, date: p.date, amt, color: hex(task.color) });
+        });
+    });
+    const flowKeys = Object.keys(flowMap).sort();
+    const flowTotal = flowKeys.reduce((s, k) => s + flowMap[k].amount, 0);
+
+    let cumulative = 0;
+    let flowRowsHTML = '';
+    flowKeys.forEach(key => {
+        const grp = flowMap[key];
+        cumulative += grp.amount;
+        const itemsTxt = grp.items
+            .sort((a,b) => a.date.localeCompare(b.date))
+            .map(it => `<span class="inline-flex items-center gap-1 mr-2 whitespace-nowrap"><span class="w-2 h-2 rounded-full inline-block" style="background:${it.color};"></span>${it.name}·${it.label} ${fmtMoney(it.amt)}</span>`)
+            .join('');
+        const keyLabel = groupBy === 'month' ? key.replace('-', '年') + '月' : key;
+        flowRowsHTML += `
+            <tr class="border-b border-slate-100 align-top">
+                <td class="py-2 px-3 font-medium text-slate-700 whitespace-nowrap">${keyLabel}</td>
+                <td class="py-2 px-3 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">${fmtMoney(grp.amount)}</td>
+                <td class="py-2 px-3 text-right font-mono text-slate-400 whitespace-nowrap">${fmtMoney(cumulative)}</td>
+                <td class="py-2 px-3 text-xs text-slate-500">${itemsTxt}</td>
+            </tr>`;
+    });
+
+    const cashflowHTML = `
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-2">
+            <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="font-semibold text-slate-700">📈 現金流彙整（${groupBy==='month'?'依月':'依日期'}）</h3>
+                <span class="text-xs text-slate-500">合計應付 <b class="font-mono text-slate-700">${fmtMoney(flowTotal)}</b></span>
+            </div>
+            <div class="overflow-auto">
+                <table class="w-full text-left text-sm min-w-[600px]">
+                    <thead class="bg-slate-50 text-xs text-slate-500 sticky top-0">
+                        <tr>
+                            <th class="py-2 px-3 font-medium w-28">時間</th>
+                            <th class="py-2 px-3 font-medium text-right w-36">當期應付</th>
+                            <th class="py-2 px-3 font-medium text-right w-36">累計應付</th>
+                            <th class="py-2 px-3 font-medium">明細</th>
+                        </tr>
+                    </thead>
+                    <tbody>${flowRowsHTML || `<tr><td colspan="4" class="py-3 px-3 text-slate-400 text-center">尚無付款資料</td></tr>`}</tbody>
+                </table>
+            </div>
+        </div>`;
+
+    root.innerHTML = totalHTML
+        + `<h3 class="font-semibold text-slate-600 text-sm mb-2">各任務付款明細</h3>`
+        + cardsHTML
+        + cashflowHTML;
+}
+
 window.addTask=addTask; window.openDeleteModal=openDeleteModal; window.closeDeleteModal=closeDeleteModal;
 window.updateTaskField=updateTaskField; window.resetData=resetData; window.exportToPDF=exportToPDF;
 window.setScaleUnit=setScaleUnit; window.cycleColor=cycleColor;
@@ -1391,6 +1698,9 @@ window.backupNow=backupNow;
 window.exportBackupFile=exportBackupFile; window.importBackupFile=importBackupFile;
 window.openOwnerDialog=openOwnerDialog; window.closeOwnerDialog=closeOwnerDialog;
 window.ownerSaveToken=ownerSaveToken; window.ownerClearToken=ownerClearToken;
+window.switchTab=switchTab; window.updateCurrency=updateCurrency;
+window.updatePaymentField=updatePaymentField; window.updateTaskPrice=updateTaskPrice;
+window.addPayment=addPayment; window.removePayment=removePayment; window.renderPaymentTab=renderPaymentTab;
 </script>
 </body>
 </html>
