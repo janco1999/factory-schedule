@@ -537,7 +537,7 @@ function updateStyleDisplays() {
 //   填了 appsScriptUrl 就以 Apps Script 為同步後端。
 //   網址可公開（光有網址沒密語也改不了）；密語由協作者各自輸入一次。
 const SYNC_CONFIG = {
-    appsScriptUrl: 'https://script.google.com/macros/s/AKfycbzU_0YgcIAX_epgHIGdN6UG6PZ_fMgLn7cF9UTviRkmep_H1p1DYx1uVXgA5fMZlf-u/exec',   // ★ 部署 Apps Script 後的 /exec 網址，貼在這裡
+    appsScriptUrl: '',   // ★ 部署 Apps Script 後的 /exec 網址，貼在這裡
 };
 
 // 方式二（備援）：GitHub（需每台裝置各自輸入 Token）
@@ -2203,6 +2203,17 @@ function fmtPct(n) {
     return (Math.round(v * 10) / 10) + '%';
 }
 
+// 千分位顯示（給輸入框用，不含幣別符號）
+function fmtNum(n) {
+    const v = Math.round(Number(n) || 0);
+    return v.toLocaleString('en-US');
+}
+// 去除逗號後轉數字（解析輸入框）
+function parseNum(s) {
+    const n = Number(String(s).replace(/,/g, '').trim());
+    return isFinite(n) ? n : 0;
+}
+
 // 某任務各期金額 = 總價 × pct/100
 function paymentAmount(task, p) {
     return (Number(task.totalPrice) || 0) * (Number(p.pct) || 0) / 100;
@@ -2219,11 +2230,12 @@ function updatePaymentField(taskId, idx, field, value) {
     const t = tasks.find(t => t.id === taskId);
     if (!t || !t.payments[idx]) return;
     if (field === 'pct') {
-        t.payments[idx].pct = Math.max(0, Number(value) || 0);
+        t.payments[idx].pct = Math.max(0, parseNum(value));
     } else if (field === 'amount') {
-        // 由金額反推百分比（需要總價）
+        // 由金額反推百分比（需要總價）；金額可能含千分位逗號
         const total = Number(t.totalPrice) || 0;
-        t.payments[idx].pct = total > 0 ? (Number(value) || 0) / total * 100 : 0;
+        const amt = Math.max(0, parseNum(value));
+        t.payments[idx].pct = total > 0 ? amt / total * 100 : 0;
     } else {
         t.payments[idx][field] = value;
     }
@@ -2234,7 +2246,7 @@ function updatePaymentField(taskId, idx, field, value) {
 function updateTaskPrice(taskId, value) {
     const t = tasks.find(t => t.id === taskId);
     if (!t) return;
-    t.totalPrice = Math.max(0, Number(value) || 0);
+    t.totalPrice = Math.max(0, parseNum(value));   // 容許含逗號
     renderPaymentTab(); saveData();
 }
 
@@ -2290,7 +2302,7 @@ function renderPaymentTab() {
                     <span class="text-slate-400 text-xs">%</span>
                 </td>
                 <td class="py-1.5 px-2 text-right">
-                    <input type="number" min="0" step="1" value="${Math.round(paymentAmount(task,p))}" onchange="updatePaymentField(${task.id},${idx},'amount',this.value)"
+                    <input type="text" inputmode="numeric" value="${fmtNum(paymentAmount(task,p))}" onchange="updatePaymentField(${task.id},${idx},'amount',this.value)"
                         class="border border-slate-300 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-indigo-500 w-28 font-mono">
                 </td>
                 <td class="py-1.5 px-2 text-center">
@@ -2309,7 +2321,7 @@ function renderPaymentTab() {
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     <span class="text-xs text-slate-500">總價</span>
-                    <input type="number" min="0" step="1000" value="${Math.round(Number(task.totalPrice)||0)}" onchange="updateTaskPrice(${task.id},this.value)"
+                    <input type="text" inputmode="numeric" value="${fmtNum(task.totalPrice)}" onchange="updateTaskPrice(${task.id},this.value)"
                         class="border border-slate-300 rounded px-2 py-1 text-sm text-right font-mono font-semibold text-slate-800 focus:outline-none focus:border-indigo-500 w-36">
                 </div>
             </div>
