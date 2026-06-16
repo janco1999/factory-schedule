@@ -89,7 +89,7 @@
             </span>
         </div>
         <!-- 備份狀態指示燈（純顯示，無任何操作功能）-->
-        <div id="backup-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0" title="雲端同步：未啟用"></div>
+        <div id="backup-dot" onclick="if(usingAppsScript()) promptSyncSecret(false)" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0 cursor-pointer" title="雲端同步：未啟用"></div>
         <input type="file" id="import-backup-input" accept=".json,.txt" class="hidden" onchange="importBackupFile(this)">
         <button onclick="openExportDialog()" id="pdf-btn"
             class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-all flex items-center gap-2 active:scale-95">
@@ -350,6 +350,30 @@
 </div>
 
 <!-- ⚠️ 衝突解決對話框 -->
+<!-- 🔑 協作密語輸入對話框（Apps Script 模式，給所有協作者）-->
+<div id="secret-dialog"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+    <div id="secret-dialog-card"
+        class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-sm w-full mx-4 overflow-hidden transform scale-95 transition-transform duration-200">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-2 bg-indigo-50">
+            <span class="text-xl">🔑</span>
+            <h3 class="text-base font-bold text-indigo-700">加入協作</h3>
+        </div>
+        <div class="p-5 space-y-3">
+            <p class="text-sm text-slate-600">請輸入團隊的<b>協作密語</b>以連線、同步大家的排程資料（只需輸入一次，這台裝置會記住）。</p>
+            <input id="secret-input" type="password" placeholder="輸入協作密語"
+                onkeydown="if(event.key==='Enter') saveSyncSecret()"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+            <p id="secret-error" style="display:none;" class="text-xs text-red-500">密語錯誤，請向管理者確認後再試。</p>
+            <button id="secret-save-btn" onclick="saveSyncSecret()"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+                連線
+            </button>
+            <p class="text-[11px] text-slate-400">密語只儲存在這台裝置，不會公開。手機與電腦各需輸入一次。</p>
+        </div>
+    </div>
+</div>
+
 <div id="conflict-dialog"
     class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
     <div id="conflict-dialog-card"
@@ -508,26 +532,38 @@ function updateStyleDisplays() {
 //   - Token 不寫在檔案內：每台裝置（含手機）需按 Ctrl+Alt+B 各輸入一次
 // ═══════════════════════════════════════════════════════════
 
-// ★★★ 管理者請在這裡填寫 GitHub 目標（不含 Token！）★★★
-const BACKUP_TARGET = {
-    owner:  '',          // GitHub 帳號或組織，例如 'sean-tw'
-    repo:   '',          // Repo 名稱，例如 'factory-schedule'
-    branch: 'main',
-    path:   'backup',    // repo 內存放資料的資料夾
+// ═══════════ 同步後端設定 ═══════════
+// 方式一（推薦，協作者免申請 Token）：Google Apps Script Web App
+//   填了 appsScriptUrl 就以 Apps Script 為同步後端。
+//   網址可公開（光有網址沒密語也改不了）；密語由協作者各自輸入一次。
+const SYNC_CONFIG = {
+    appsScriptUrl: '',   // ★ 部署 Apps Script 後的 /exec 網址，貼在這裡
 };
 
-const SYNC_FILE = 'factory_data.json';        // 共用主檔（大家共讀共寫）
+// 方式二（備援）：GitHub（需每台裝置各自輸入 Token）
+// ★ 若用 Apps Script，下面 GitHub 設定可留空 ★
+const BACKUP_TARGET = {
+    owner:  '',
+    repo:   '',
+    branch: 'main',
+    path:   'backup',
+};
+
+const SYNC_FILE = 'factory_data.json';        // GitHub 模式的共用主檔
 const BACKUP_PREFIX = 'factory_backup_';      // 每日歷史備份檔前綴
 const SYNC_POLL_MS = 20 * 1000;               // 每 20 秒拉取別人的更新
 const SYNC_PUSH_DELAY_MS = 3 * 1000;          // 編輯後 3 秒自動寫回
 const DAILY_BACKUP_MS = 60 * 60 * 1000;       // 每小時最多寫一次每日備份檔
 const LS_SAVED_AT = 'factory_saved_at';
 const LS_GH_TOKEN = 'factory_gh_token';
+const LS_SYNC_SECRET = 'factory_sync_secret';
 
 let ghToken = '';
 try { ghToken = localStorage.getItem(LS_GH_TOKEN) || ''; } catch(e){}
+let syncSecret = '';
+try { syncSecret = localStorage.getItem(LS_SYNC_SECRET) || ''; } catch(e){}
 
-let syncFileSha = null;        // 主檔目前的 sha（衝突偵測用）
+let syncFileSha = null;        // 通用版本識別：GitHub=sha 字串；Apps Script=version 數字
 let lastSyncedCore = '';       // 上次同步成功時的任務資料快照
 let hasUnsavedEdits = false;   // 本機有尚未寫回的編輯
 let pushTimer = null;          // 延遲寫回計時器
@@ -535,8 +571,14 @@ let lastDailyBackup = 0;       // 上次寫每日備份檔的時間
 let isPushing = false;         // 寫回中旗標
 let isPulling = false;         // 拉取中旗標
 
+function usingAppsScript() { return !!SYNC_CONFIG.appsScriptUrl; }
 function backupEnabled() {
     return !!(BACKUP_TARGET.owner && BACKUP_TARGET.repo && ghToken);
+}
+// 同步是否可用：Apps Script 需有密語；GitHub 需有 Token
+function syncEnabled() {
+    if (usingAppsScript()) return !!syncSecret;
+    return backupEnabled();
 }
 
 // ── 狀態指示燈（純顯示）──
@@ -560,14 +602,67 @@ function updateBackupDot(state, tip='') {
 function backupFileName() {
     return BACKUP_PREFIX + new Date().toISOString().split('T')[0] + '.json';
 }
-function backupSnapshot() {
-    return JSON.stringify({
+function snapshotObj() {
+    return {
         savedAt: new Date().toISOString(),
         app: '工廠設備進廠與施作時程規畫表',
         tasks: tasks,
         ganttStyle: ganttStyle,
         currencySymbol: currencySymbol,
-    }, null, 2);
+    };
+}
+function backupSnapshot() {
+    return JSON.stringify(snapshotObj(), null, 2);
+}
+
+// ── Google Apps Script 後端 ──
+async function asGet() {
+    const url = SYNC_CONFIG.appsScriptUrl + '?action=get&secret=' + encodeURIComponent(syncSecret);
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`連線失敗 (${r.status})`);
+    const j = await r.json();
+    if (j.error === 'unauthorized') { const e = new Error('密語錯誤'); e.unauthorized = true; throw e; }
+    if (!j.ok) throw new Error(j.error || '讀取失敗');
+    return j.data;   // null 表示後端尚無資料
+}
+async function asSave(dataObj, baseVersion) {
+    // 用 text/plain（預設）避免 CORS preflight
+    const r = await fetch(SYNC_CONFIG.appsScriptUrl, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'save', secret: syncSecret, baseVersion: baseVersion, data: dataObj }),
+    });
+    if (!r.ok) throw new Error(`寫入失敗 (${r.status})`);
+    const j = await r.json();
+    if (j.error === 'unauthorized') { const e = new Error('密語錯誤'); e.unauthorized = true; throw e; }
+    if (j.conflict) { const e = new Error('CONFLICT'); e.conflict = true; e.remote = j.data; throw e; }
+    if (!j.ok) throw new Error(j.error || '寫入失敗');
+    return j.data;   // 含新 version
+}
+
+// ── 後端抽象：統一 Apps Script / GitHub ──
+async function backendGet() {
+    if (usingAppsScript()) {
+        const obj = await asGet();
+        return { obj, rev: obj ? obj.version : null, exists: !!obj };
+    } else {
+        const got = await ghGetFile(SYNC_FILE).catch(e => {
+            if (String(e.message).includes('404')) return null;
+            throw e;
+        });
+        if (!got) return { obj: null, rev: null, exists: false };
+        return { obj: JSON.parse(got.text), rev: got.sha, exists: true };
+    }
+}
+// 回傳新的 rev。衝突時 throw（e.conflict=true，e.remote 可能含對方資料）
+async function backendSave(baseRev) {
+    if (usingAppsScript()) {
+        const saved = await asSave(snapshotObj(), baseRev);
+        return saved.version;
+    } else {
+        const newSha = await ghPutFile(SYNC_FILE, backupSnapshot(), baseRev === null ? null : baseRev,
+            `update: 排程資料 (${new Date().toLocaleString('zh-TW',{hour12:false})})`);
+        return newSha;
+    }
 }
 
 // ── UTF-8 ↔ Base64 ──
@@ -685,27 +780,22 @@ function applyRemoteData(obj) {
 
 // 拉取主檔（poll）：若遠端較新且本機沒有未存編輯，就套用
 async function pullRemote(initial = false) {
-    if (!backupEnabled() || isPulling || isPushing) return;
+    if (!syncEnabled() || isPulling || isPushing) return;
     isPulling = true;
     try {
-        const got = await ghGetFile(SYNC_FILE).catch(e => {
-            if (String(e.message).includes('404')) return null;   // 主檔還不存在
-            throw e;
-        });
-        if (!got) {
-            // 主檔不存在 → 由本機資料建立第一份
+        const { obj, rev, exists } = await backendGet();
+        if (!exists) {
+            // 後端尚無資料 → 由本機建立第一份
             syncFileSha = null;
             if (initial) await pushNow(true);
-            else updateBackupDot('ok', '（已建立主檔）');
+            else updateBackupDot('ok', '（已建立共用資料）');
             return;
         }
-        syncFileSha = got.sha;
-        const obj = JSON.parse(got.text);
+        syncFileSha = rev;
         const remoteSavedAt = obj.savedAt || '';
         const localSavedAt = localStorage.getItem(LS_SAVED_AT) || '';
 
         if (hasUnsavedEdits) {
-            // 本機有未存編輯：先不覆蓋，但記住遠端較新（寫回時會用 sha 偵測衝突）
             updateBackupDot('pending', '（你有未儲存的變更）');
             return;
         }
@@ -717,8 +807,8 @@ async function pullRemote(initial = false) {
             updateBackupDot('ok');
         }
     } catch(e) {
-        console.error('拉取失敗:', e);
-        updateBackupDot('error', `：${e.message}`);
+        if (e.unauthorized) { updateBackupDot('error', '：密語錯誤'); promptSyncSecret(true); }
+        else { console.error('拉取失敗:', e); updateBackupDot('error', `：${e.message}`); }
     } finally {
         isPulling = false;
     }
@@ -726,36 +816,35 @@ async function pullRemote(initial = false) {
 
 // 寫回主檔。偵測到衝突時提示並拉取最新。
 async function pushNow(silent = false) {
-    if (!backupEnabled()) {
-        if (!silent) toast('雲端同步未啟用：請按 Ctrl+Alt+B 輸入 Token', 'error');
+    if (!syncEnabled()) {
+        if (!silent) toast(usingAppsScript() ? '請先輸入協作密語' : '雲端同步未啟用：請按 Ctrl+Alt+B 輸入 Token', 'error');
         return;
     }
     if (isPushing) return;
     const core = JSON.stringify(tasks);
-    if (core === lastSyncedCore && syncFileSha) { hasUnsavedEdits = false; updateBackupDot('ok'); return; }
+    if (core === lastSyncedCore && syncFileSha !== null) { hasUnsavedEdits = false; updateBackupDot('ok'); return; }
 
     isPushing = true;
     updateBackupDot('busy');
     try {
-        const payload = backupSnapshot();
-        const newSha = await ghPutFile(SYNC_FILE, payload, syncFileSha === null ? null : syncFileSha,
-            `update: 排程資料 (${new Date().toLocaleString('zh-TW',{hour12:false})})`);
-        syncFileSha = newSha;
+        const newRev = await backendSave(syncFileSha);
+        syncFileSha = newRev;
         lastSyncedCore = core;
         hasUnsavedEdits = false;
         const t = new Date().toLocaleTimeString('zh-TW', { hour12:false, hour:'2-digit', minute:'2-digit' });
         updateBackupDot('ok', `（已同步 ${t}）`);
 
-        // 順便寫每日歷史備份（每小時最多一次）
-        if (Date.now() - lastDailyBackup >= DAILY_BACKUP_MS) {
+        // GitHub 模式順便寫每日歷史備份（Apps Script 後端自行保存版本，不需要）
+        if (!usingAppsScript() && Date.now() - lastDailyBackup >= DAILY_BACKUP_MS) {
             lastDailyBackup = Date.now();
-            ghPutFile(backupFileName(), payload, undefined, `backup: 每日備份 ${backupFileName()}`).catch(()=>{});
+            ghPutFile(backupFileName(), backupSnapshot(), undefined, `backup: 每日備份 ${backupFileName()}`).catch(()=>{});
         }
     } catch(e) {
         if (e.conflict) {
-            // 別人先改了 → 拉取最新並提示
             updateBackupDot('conflict', '（他人已先儲存）');
-            await handleConflict();
+            await handleConflict(e.remote);
+        } else if (e.unauthorized) {
+            updateBackupDot('error', '：密語錯誤'); promptSyncSecret(true);
         } else {
             console.error('寫回失敗:', e);
             updateBackupDot('error', `：${e.message}`);
@@ -766,16 +855,20 @@ async function pushNow(silent = false) {
     }
 }
 
-// 衝突處理：拉最新遠端，詢問使用者要保留誰的版本
-async function handleConflict() {
+// 衝突處理：取得對方最新資料，詢問使用者要保留誰的版本
+async function handleConflict(remoteData) {
     try {
-        const got = await ghGetFile(SYNC_FILE);
-        if (!got) return;
-        syncFileSha = got.sha;
-        const remote = JSON.parse(got.text);
-        const myCore = JSON.stringify(tasks);
-        // 我的變更暫存，套用遠端讓使用者看到別人的版本
-        pendingConflict = { mineTasks: JSON.parse(myCore), mineStyle: JSON.parse(JSON.stringify(ganttStyle)), remote };
+        let remote = remoteData;
+        if (!remote) {
+            const { obj, rev } = await backendGet();
+            syncFileSha = rev;
+            remote = obj;
+        } else {
+            // Apps Script 衝突回應已附對方資料；更新 rev
+            syncFileSha = remote.version !== undefined ? remote.version : syncFileSha;
+        }
+        if (!remote) return;
+        pendingConflict = { mineTasks: JSON.parse(JSON.stringify(tasks)), mineStyle: JSON.parse(JSON.stringify(ganttStyle)), remote };
         openConflictDialog(remote);
     } catch(e) {
         updateBackupDot('error', `：${e.message}`);
@@ -786,7 +879,7 @@ let pendingConflict = null;
 
 // 排程寫回（編輯後延遲數秒，避免每次按鍵都送出）
 function scheduleSync() {
-    if (!backupEnabled()) return;
+    if (!syncEnabled()) return;
     hasUnsavedEdits = true;
     updateBackupDot('pending');
     if (pushTimer) clearTimeout(pushTimer);
@@ -795,20 +888,28 @@ function scheduleSync() {
 
 // ── 開啟頁面：啟動協作同步 ──
 async function restoreBackupConnection() {
-    if (!backupEnabled()) { updateBackupDot('off'); return; }
+    // Apps Script 模式但還沒輸入密語 → 提示協作者輸入
+    if (usingAppsScript() && !syncSecret) {
+        updateBackupDot('off');
+        promptSyncSecret(false);
+        return;
+    }
+    if (!syncEnabled()) { updateBackupDot('off'); return; }
     updateBackupDot('busy');
     await pullRemote(true);
-    // 啟動定期拉取
     setInterval(() => pullRemote(false), SYNC_POLL_MS);
-    // 離開頁面前若有未存變更，盡力送出
     window.addEventListener('beforeunload', () => {
-        if (hasUnsavedEdits && backupEnabled()) {
-            try {
+        if (!hasUnsavedEdits || !syncEnabled()) return;
+        try {
+            if (usingAppsScript()) {
+                const payload = JSON.stringify({ action:'save', secret: syncSecret, baseVersion: syncFileSha, data: snapshotObj() });
+                navigator.sendBeacon && navigator.sendBeacon(SYNC_CONFIG.appsScriptUrl, new Blob([payload], {type:'text/plain'}));
+            } else {
                 const p = ghDir() ? `${ghDir()}/${SYNC_FILE}` : SYNC_FILE;
                 const body = JSON.stringify({ message:'update: 離開前自動儲存', content: utf8ToB64(backupSnapshot()), branch: ghRef(), sha: syncFileSha || undefined });
                 navigator.sendBeacon && navigator.sendBeacon(ghContentsUrl(p), new Blob([body],{type:'application/json'}));
-            } catch(e){}
-        }
+            }
+        } catch(e){}
     });
 }
 
@@ -817,6 +918,53 @@ async function backupNow(force = false) {
     await pushNow(!force);
 }
 async function loadLatestBackup() { await pullRemote(false); }
+
+// ── 協作密語輸入（Apps Script 模式，給所有協作者）──
+function promptSyncSecret(isError) {
+    const m = document.getElementById('secret-dialog');
+    if (!m) return;
+    const errEl = document.getElementById('secret-error');
+    if (errEl) errEl.style.display = isError ? 'block' : 'none';
+    const inp = document.getElementById('secret-input');
+    if (inp) inp.value = isError ? '' : syncSecret;
+    m.classList.remove('hidden');
+    setTimeout(()=>{ m.classList.remove('opacity-0'); const c=document.getElementById('secret-dialog-card'); if(c)c.classList.remove('scale-95'); }, 10);
+    setTimeout(()=>{ if(inp) inp.focus(); }, 250);
+}
+function closeSecretDialog() {
+    const m = document.getElementById('secret-dialog');
+    if (!m) return;
+    m.classList.add('opacity-0');
+    const c=document.getElementById('secret-dialog-card'); if(c)c.classList.add('scale-95');
+    setTimeout(()=>m.classList.add('hidden'), 200);
+}
+async function saveSyncSecret() {
+    const inp = document.getElementById('secret-input');
+    const val = (inp ? inp.value : '').trim();
+    if (!val) { toast('請輸入密語', 'error'); return; }
+    const btn = document.getElementById('secret-save-btn');
+    if (btn) { btn.textContent = '⏳ 驗證中...'; btn.disabled = true; }
+    const prev = syncSecret;
+    syncSecret = val;
+    try {
+        await asGet();   // 測試密語是否正確
+        try { localStorage.setItem(LS_SYNC_SECRET, val); } catch(e){}
+        toast('已連線，開始協作同步', 'success');
+        closeSecretDialog();
+        updateBackupDot('busy');
+        await pullRemote(true);
+        if (!window.__syncPollStarted) {
+            window.__syncPollStarted = true;
+            setInterval(() => pullRemote(false), SYNC_POLL_MS);
+        }
+    } catch(e) {
+        syncSecret = prev;
+        if (e.unauthorized) toast('密語錯誤，請再試一次', 'error');
+        else toast('連線失敗：' + e.message, 'error');
+    } finally {
+        if (btn) { btn.textContent = '連線'; btn.disabled = false; }
+    }
+}
 
 // ── 衝突解決對話框 ──
 function openConflictDialog(remote) {
@@ -852,21 +1000,20 @@ async function conflictKeepTheirs() {
 async function conflictKeepMine() {
     closeConflictDialog();
     if (!pendingConflict) return;
-    // tasks 目前可能已被改動，還原成我的版本再寫回
     tasks = pendingConflict.mineTasks;
     ganttStyle = pendingConflict.mineStyle;
     pendingConflict = null;
     renderTable(); renderGantt();
     updateBackupDot('busy');
     try {
-        const newSha = await ghPutFile(SYNC_FILE, backupSnapshot(), syncFileSha, `update: 採用我的版本覆蓋 (${new Date().toLocaleString('zh-TW',{hour12:false})})`);
-        syncFileSha = newSha;
+        const newRev = await backendSave(syncFileSha);   // syncFileSha 已更新為對方最新版本，可覆蓋
+        syncFileSha = newRev;
         lastSyncedCore = JSON.stringify(tasks);
         hasUnsavedEdits = false;
         updateBackupDot('ok', '（已用你的版本覆蓋）');
         toast('已用你的版本覆蓋', 'success');
     } catch(e) {
-        if (e.conflict) { await handleConflict(); }
+        if (e.conflict) { await handleConflict(e.remote); }
         else { updateBackupDot('error', `：${e.message}`); toast(e.message, 'error'); }
     }
 }
@@ -2278,6 +2425,7 @@ window.openOwnerDialog=openOwnerDialog; window.closeOwnerDialog=closeOwnerDialog
 window.ownerSaveToken=ownerSaveToken; window.ownerClearToken=ownerClearToken;
 window.conflictKeepTheirs=conflictKeepTheirs; window.conflictKeepMine=conflictKeepMine;
 window.closeConflictDialog=closeConflictDialog;
+window.saveSyncSecret=saveSyncSecret; window.closeSecretDialog=closeSecretDialog; window.promptSyncSecret=promptSyncSecret;
 window.switchTab=switchTab; window.updateCurrency=updateCurrency;
 window.updatePaymentField=updatePaymentField; window.updateTaskPrice=updateTaskPrice;
 window.addPayment=addPayment; window.removePayment=removePayment; window.renderPaymentTab=renderPaymentTab;
